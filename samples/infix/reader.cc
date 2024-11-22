@@ -64,7 +64,8 @@ namespace
 
   PassDef expressions()
   {
-    return {
+    PassDef exprs =
+     {
       "expressions",
       wf_pass_expressions,
       dir::topdown,
@@ -130,6 +131,11 @@ namespace
         T(Group)[Group] >>
           [](Match& _) { return err(_[Group], "syntax error"); },
       }};
+    exprs.prop("alwaysFail",[](Node ){
+      std::cout << "testing prop false";
+      return false; 
+    });
+    return exprs;
   }
 
   inline const auto ExpressionArg = T(Expression, Ident) / Number;

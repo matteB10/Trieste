@@ -118,6 +118,7 @@ namespace trieste
     std::string last_pass;
     Node ast;
     Nodes errors;
+    std::vector<std::string> failed_props = {};
 
     void print_errors(logging::Log& err) const
     {
@@ -279,6 +280,7 @@ namespace trieste
       WFContext context(pass_range.input_wf());
 
       Nodes errors;
+      std::vector<std::string> failed_props;
 
       // Check ast is well-formed before starting.
       auto ok = validate(ast, errors);
@@ -299,10 +301,13 @@ namespace trieste
         ast = new_ast;
         context.pop_front();
 
-        ++pass_range;
-
         ok = validate(ast, errors);
 
+        // check supplied properties
+        std::cout << "checking props...";
+        ok = pass->check_props(ast, failed_props) && ok; 
+
+        //TODO: add props feedback to stats?
         auto then = std::chrono::high_resolution_clock::now();
         stats = {
           count,
@@ -312,9 +317,10 @@ namespace trieste
         ok = pass_complete(ast, pass->name(), index, stats) && ok;
 
         last_pass = pass->name();
+        ++pass_range;
       }
 
-      return {ok, last_pass, ast, errors};
+      return {ok, last_pass, ast, errors, failed_props};
     }
   };
 } // namespace trieste
