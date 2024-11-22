@@ -24,6 +24,7 @@ namespace trieste
   {
   public:
     using F = std::function<size_t(Node)>;
+    using Prop = std::function<bool(Node)>;
 
   private:
     static const int NOCHANGE = -1;
@@ -42,6 +43,7 @@ namespace trieste
     F post_once;
     std::map<Token, F> pre_;
     std::map<Token, F> post_;
+    std::vector<std::pair<std::string, Prop>> props_;
 
   public:
     PassDef(
@@ -137,6 +139,11 @@ namespace trieste
         post_[type] = f;
     }
 
+    void prop(std::string name, Prop p)
+    {
+      props_.push_back(std::pair(name,p));
+    }
+
     template<typename... Ts>
     void rules(Ts... r)
     {
@@ -184,6 +191,15 @@ namespace trieste
 
       return {node, count, changes_sum};
     }
+  
+  bool check_props(Node ast, std::vector<std::string> failed_props)
+  {
+    for (auto [name,p] : props_){
+      if (!p(ast)) 
+        failed_props.push_back(name);
+    }
+    return failed_props.empty(); 
+  }
 
   private:
     void compile_rules()
