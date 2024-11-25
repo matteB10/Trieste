@@ -162,6 +162,8 @@ namespace trieste
 
     bool check_well_formed{true};
 
+    bool check_prop{false}; 
+
     std::function<bool(Node&, std::string, size_t index, PassStatistics&)>
       pass_complete;
 
@@ -252,6 +254,15 @@ namespace trieste
       return *this;
     }
 
+     /**
+     * Specifies if properties should be checked between passes.
+     */
+    Process& set_check_properties(bool b)
+    {
+      check_prop = b;
+      return *this;
+    }
+
     bool validate(Node ast, Nodes& errors)
     {
       auto wf = pass_range.input_wf();
@@ -266,6 +277,20 @@ namespace trieste
       ok = ok && (!check_well_formed || wf.check(ast));
 
       return ok;
+    }
+
+    bool validate_properties(PassDef pass,
+                             Node ast,  
+                             std::vector<std::string> failed_props)
+    {
+      bool ok = true;
+      if(check_prop) 
+      {
+          std::cout << "checking props...";
+          ok = pass.check_props(ast, failed_props); 
+      }
+
+      return ok; 
     }
 
     /**
@@ -300,12 +325,13 @@ namespace trieste
         auto [new_ast, count, changes] = pass->run(ast);
         ast = new_ast;
         context.pop_front();
+        
+        ++pass_range;
 
         ok = validate(ast, errors);
 
-        // check supplied properties
-        std::cout << "checking props...";
-        ok = pass->check_props(ast, failed_props) && ok; 
+        // Check pass properties if flag is set
+        ok = validate_properties(*pass,ast,failed_props) && ok; 
 
         //TODO: add props feedback to stats?
         auto then = std::chrono::high_resolution_clock::now();
@@ -317,7 +343,6 @@ namespace trieste
         ok = pass_complete(ast, pass->name(), index, stats) && ok;
 
         last_pass = pass->name();
-        ++pass_range;
       }
 
       return {ok, last_pass, ast, errors, failed_props};

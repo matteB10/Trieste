@@ -19,6 +19,7 @@ namespace trieste
     uint32_t start_seed_;
     uint32_t seed_count_;
     bool failfast_;
+    bool check_props_;
     size_t start_index_;
     size_t end_index_;
 
@@ -36,6 +37,7 @@ namespace trieste
       start_seed_(std::random_device()()),
       seed_count_(100),
       failfast_(false),
+      check_props_(false),
       start_index_(1),
       end_index_(passes.size() - 1)
     {}
@@ -97,6 +99,17 @@ namespace trieste
       return *this;
     }
 
+    bool check_props() const
+    {
+      return check_props_;
+    }
+
+    Fuzzer& check_props(bool check)
+    {
+      check_props_ = check;
+      return *this;
+    }
+
     size_t start_index() const
     {
       return start_index_;
@@ -127,6 +140,7 @@ namespace trieste
     int test()
     {
       WFContext context;
+      std::vector<std::string> failed_props;
       int ret = 0;
       for (size_t i = start_index_; i <= end_index_; i++)
       {
@@ -189,6 +203,22 @@ namespace trieste
                 << std::endl;
             ret = 1;
 
+            if (failfast_)
+              return ret;
+          }
+          else if(check_props_)
+          {
+            if (!pass->props().empty())
+            {
+              ok = pass->check_props(ast, failed_props); 
+            }
+            //TODO: do proper logging 
+            
+            if (!ok)
+            {
+              std::cout << "Failed property test for pass: " << pass->name() << std::endl; 
+              ret = 1; 
+            }
             if (failfast_)
               return ret;
           }

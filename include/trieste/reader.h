@@ -24,6 +24,7 @@ namespace trieste
     InputSpec input_{};
     bool debug_enabled_;
     bool wf_check_enabled_;
+    bool prop_check_enabled_;
     std::filesystem::path debug_path_;
     std::string start_pass_;
     std::string end_pass_;
@@ -39,6 +40,7 @@ namespace trieste
       parser_(parser),
       debug_enabled_(false),
       wf_check_enabled_(false),
+      prop_check_enabled_(false),
       debug_path_("."),
       start_pass_(""),
       end_pass_(""),
@@ -120,6 +122,7 @@ namespace trieste
       auto result =
         Process(pass_range)
           .set_check_well_formed(wf_check_enabled_)
+          .set_check_properties(prop_check_enabled_)
           .set_default_pass_complete(summary, language_name_, debug_path)
           .run(ast);
       summary << "---------" << std::endl;
@@ -193,6 +196,17 @@ namespace trieste
     bool wf_check_enabled() const
     {
       return wf_check_enabled_;
+    }
+
+    Reader& prop_check_enabled(bool value)
+    {
+      prop_check_enabled_ = value;
+      return *this;
+    }
+
+    bool prop_check_enabled() const
+    {
+      return prop_check_enabled_;
     }
 
     Reader& debug_path(const std::filesystem::path& path)

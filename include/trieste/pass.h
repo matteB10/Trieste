@@ -144,6 +144,11 @@ namespace trieste
       props_.push_back(std::pair(name,p));
     }
 
+    std::vector<std::pair<std::string, Prop>> props()
+    {
+      return props_;
+    }
+
     template<typename... Ts>
     void rules(Ts... r)
     {

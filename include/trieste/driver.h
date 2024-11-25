@@ -70,6 +70,9 @@ namespace trieste
       build->add_option(
         "--dump_passes", dump_passes, "Dump passes to the supplied directory.");
 
+      bool propcheck = false;
+      build->add_flag("-q", propcheck, "Check test properties.");
+
       // Custom command line options when building.
       if (options)
         options->configure(*build);
@@ -109,6 +112,7 @@ namespace trieste
       bool test_failfast = false;
       test->add_flag("-f,--failfast", test_failfast, "Stop on first failure");
 
+      test->add_flag("-q", propcheck, "Check test properties.");
       try
       {
         app.parse(argc, argv);
@@ -127,6 +131,7 @@ namespace trieste
           .debug_enabled(!dump_passes.empty())
           .debug_path(dump_passes)
           .wf_check_enabled(wfcheck)
+          .prop_check_enabled(propcheck)
           .end_pass(end_pass);
         if (path.extension() == ".trieste")
         {
@@ -192,6 +197,7 @@ namespace trieste
           .start_index(reader.pass_index(test_start_pass))
           .end_index(reader.pass_index(test_end_pass))
           .start_seed(test_seed)
+          .check_props(propcheck)
           .test();
       }
 
