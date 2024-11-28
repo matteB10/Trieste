@@ -95,7 +95,7 @@ namespace
         // the In() child sequence.
         In(Calculation) *
             (T(Group) << (T(Print) * T(String)[Lhs] * Any++[Rhs])) >>
-          [](Match& _) { return Output << _(Lhs) << (Expression << _[Rhs]); },
+          [](Match& ) { return nullptr; }, // Output << _(Lhs) << (Expression << _[Rhs]); },
 
         // This node unwraps Groups that are inside Parens, making them
         // Expression nodes.
@@ -131,9 +131,18 @@ namespace
         T(Group)[Group] >>
           [](Match& _) { return err(_[Group], "syntax error"); },
       }};
-    exprs.prop("alwaysFail",[](Node ){
-      std::cout << "testing prop false";
-      return false; 
+    exprs.prop("check length", [](Node pre, Node post){
+      auto file = pre->front();
+      auto calc = post->front();
+      auto pre_dist = (std::distance(file->begin(),file->end()));
+      auto post_dist = (std::distance(calc->begin(),calc->end()));
+      if (pre_dist == post_dist)
+      {
+        return trieste::prop::Success();
+      } 
+      else {
+        return trieste::prop::Fail();
+      } 
     });
     return exprs;
   }
@@ -165,7 +174,7 @@ namespace
 
   PassDef add_subtract()
   {
-    return {
+    PassDef add_sub = {
       "add_subtract",
       wf_pass_add_subtract,
       dir::topdown,
@@ -180,6 +189,7 @@ namespace
         (T(Add, Subtract))[Op] << End >>
           [](Match& _) { return err(_(Op), "No arguments"); },
       }};
+    return add_sub; 
   }
 
   PassDef trim()
