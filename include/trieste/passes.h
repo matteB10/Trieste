@@ -118,7 +118,6 @@ namespace trieste
     std::string last_pass;
     Node ast;
     Nodes errors;
-    std::vector<std::string> failed_props = {};
 
     void print_errors(logging::Log& err) const
     {
@@ -137,7 +136,7 @@ namespace trieste
           else
           {
             err << "-- " << child->location().origin_linecol() << std::endl
-                << child->location().str() << std::endl;
+                << child->location().str() << std::endl; 
           }
         }
         if (count++ > 20)
@@ -280,14 +279,15 @@ namespace trieste
     }
 
     bool validate_properties(PassDef pass,
-                             Node ast,  
-                             std::vector<std::string> failed_props)
+                             Node pre,
+                             Node post,  
+                             Nodes& errors)
     {
       bool ok = true;
       if(check_prop) 
       {
           std::cout << "checking props...";
-          ok = pass.check_props(ast, failed_props); 
+          ok = pass.check_props(pre, post, errors); 
       }
 
       return ok; 
@@ -305,7 +305,6 @@ namespace trieste
       WFContext context(pass_range.input_wf());
 
       Nodes errors;
-      std::vector<std::string> failed_props;
 
       // Check ast is well-formed before starting.
       auto ok = validate(ast, errors);
@@ -322,6 +321,7 @@ namespace trieste
         auto& pass = pass_range();
         context.push_back(pass->wf());
 
+        auto old_ast = ast->clone();
         auto [new_ast, count, changes] = pass->run(ast);
         ast = new_ast;
         context.pop_front();
@@ -331,7 +331,8 @@ namespace trieste
         ok = validate(ast, errors);
 
         // Check pass properties if flag is set
-        ok = validate_properties(*pass,ast,failed_props) && ok; 
+        // pass errors instead and make errors in validate_properties
+        ok = validate_properties(*pass,old_ast,ast,errors) && ok; 
 
         //TODO: add props feedback to stats?
         auto then = std::chrono::high_resolution_clock::now();
@@ -345,7 +346,7 @@ namespace trieste
         last_pass = pass->name();
       }
 
-      return {ok, last_pass, ast, errors, failed_props};
+      return {ok, last_pass, ast, errors};
     }
   };
 } // namespace trieste

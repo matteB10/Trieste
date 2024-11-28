@@ -140,7 +140,6 @@ namespace trieste
     int test()
     {
       WFContext context;
-      std::vector<std::string> failed_props;
       int ret = 0;
       for (size_t i = start_index_; i <= end_index_; i++)
       {
@@ -173,9 +172,9 @@ namespace trieste
                            << std::endl;
 
           auto ok = wf.build_st(new_ast);
+          Nodes errors;
           if (ok)
           {
-            Nodes errors;
             new_ast->get_errors(errors);
             if (!errors.empty())
               // Pass added error nodes, so doesn't need to satisfy wf.
@@ -185,15 +184,16 @@ namespace trieste
 
           if (!ok)
           {
+            // We haven't printed what failed with Trace earlier, so do it
+            // now. Regenerate the start Ast for the error message.
+            auto prev_ast = prev.gen(generators_, seed, max_depth_);
             logging::Error err;
             if (!logging::Trace::active())
             {
-              // We haven't printed what failed with Trace earlier, so do it
-              // now. Regenerate the start Ast for the error message.
               err << "============" << std::endl
                   << "Pass: " << pass->name() << ", seed: " << seed << std::endl
                   << "------------" << std::endl
-                  << prev.gen(generators_, seed, max_depth_) << "------------"
+                  << prev_ast << "------------"
                   << std::endl
                   << new_ast;
             }
@@ -202,31 +202,62 @@ namespace trieste
                 << "Failed pass: " << pass->name() << ", seed: " << seed
                 << std::endl;
             ret = 1;
-
             if (failfast_)
               return ret;
           }
-          else if(check_props_)
+          // Only test properties if pass produced well-formed tree 
+          // and there are props to test 
+          else if(check_props_ && !pass->props().empty())
           {
-            if (!pass->props().empty())
-            {
-              ok = pass->check_props(ast, failed_props); 
-            }
-            //TODO: do proper logging 
             
+            auto prev_ast = prev.gen(generators_, seed, max_depth_);
+            ok = pass->check_props(prev_ast, new_ast, errors); 
+            //std::cout << "cheked props\n";
             if (!ok)
             {
-              std::cout << "Failed property test for pass: " << pass->name() << std::endl; 
-              ret = 1; 
+              logging::Error err;
+              err << "============" << std::endl
+                  << "Pass: " << pass->name() << ", seed: " << seed << std::endl
+                  << "------------" << std::endl
+                  << prev_ast << "------------"
+                  << std::endl
+                  << new_ast;
+
+            size_t err_count = 0;
+            for (auto& error : errors)
+            {
+              err << "------------" << std::endl;
+              for (auto& child : *error)
+              {
+                if (child->type() == ErrorMsg)
+                  err << child->location().view() << std::endl;
+                else
+                {
+                  err << "-- " << child->location().origin_linecol() << std::endl
+                      << child->location().str() << std::endl; 
+                }
+              }
+              if (err_count++ > 20)
+              {
+                err << "Too many errors, stopping here" << std::endl;
+                break;
+              }
             }
+
+            err << "============" << std::endl
+                << "Failed pass: " << pass->name() << ", seed: " << seed
+                << std::endl;
+
+            ret = 1;
             if (failfast_)
               return ret;
+            }
           }
         }
 
         context.pop_front();
         context.pop_front();
-      }
+    }
 
       return ret;
     }

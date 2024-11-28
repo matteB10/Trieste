@@ -24,7 +24,7 @@ namespace trieste
   {
   public:
     using F = std::function<size_t(Node)>;
-    using Prop = std::function<bool(Node)>;
+    using Prop = std::function<std::optional<Node>(Node, Node)>;
 
   private:
     static const int NOCHANGE = -1;
@@ -196,14 +196,20 @@ namespace trieste
 
       return {node, count, changes_sum};
     }
-  
-  bool check_props(Node ast, std::vector<std::string> failed_props)
+
+  bool check_props(Node pre, Node post, Nodes& errors)
   {
-    for (auto [name,p] : props_){
-      if (!p(ast)) 
-        failed_props.push_back(name);
+    bool ok = true; 
+    for (auto [name,p] : props_)
+    {
+      if (auto error_ast = p(pre,post)) 
+      {
+        auto err_msg = "property '" + name + "' failed\n";
+        errors.push_back(Error << (ErrorMsg ^ err_msg) << *error_ast);
+        ok = false;
+      }
     }
-    return failed_props.empty(); 
+    return ok; 
   }
 
   private:
