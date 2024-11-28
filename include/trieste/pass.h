@@ -4,6 +4,7 @@
 #include "rewrite.h"
 #include "trieste/intrusive_ptr.h"
 #include "wf.h"
+#include "prop.h"
 
 #include <vector>
 
@@ -24,7 +25,7 @@ namespace trieste
   {
   public:
     using F = std::function<size_t(Node)>;
-    using Prop = std::function<std::optional<Node>(Node, Node)>;
+    using Prop = std::function<prop::PropResult(Node, Node)>;
 
   private:
     static const int NOCHANGE = -1;
@@ -200,12 +201,14 @@ namespace trieste
   bool check_props(Node pre, Node post, Nodes& errors)
   {
     bool ok = true; 
-    for (auto [name,p] : props_)
+    for (auto [name,prop] : props_)
     {
-      if (auto error_ast = p(pre,post)) 
+      auto result = prop(pre,post);
+      if (!result) 
       {
+        Node err_ast = result.reason(); 
         auto err_msg = "property '" + name + "' failed\n";
-        errors.push_back(Error << (ErrorMsg ^ err_msg) << *error_ast);
+        errors.push_back(Error << (ErrorMsg ^ err_msg) << err_ast);
         ok = false;
       }
     }
