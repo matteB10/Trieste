@@ -74,7 +74,7 @@ namespace trieste
       if (options)
         options->configure(*build);
 
-      // Test command line options.
+      // (Fuzz) Test command line options.
       auto test = app.add_subcommand("test", "Run automated tests");
 
       uint32_t test_seed_count = 100;
@@ -108,6 +108,9 @@ namespace trieste
 
       bool test_failfast = false;
       test->add_flag("-f,--failfast", test_failfast, "Stop on first failure");
+
+      // Unit test command line options.
+      auto utest = app.add_subcommand("utest", "Run Unit tests");
 
       try
       {
@@ -193,6 +196,28 @@ namespace trieste
           .end_index(reader.pass_index(test_end_pass))
           .start_seed(test_seed)
           .test();
+      }
+
+      else if (*utest){
+        auto passes = reader.passes();
+        for (auto pass : passes){
+          for (auto t : pass->tests()){
+            for (auto assertion : t.assertions){
+            logging::Output() << "Running unit tests for pass" << pass->name() << std::endl 
+                              << "Testing " << t.desc_ << std::endl
+                              << "before:\n" << assertion.before_ << std::endl;
+
+            auto [actual, _, __] = pass->run(assertion.before_); 
+            bool ok = assertion.assertion(actual,assertion.expected_);
+         
+            logging::Output() << "expected: " << assertion.expected_ << std::endl
+                              << "actual: " << actual << std::endl
+                              << (ok ? "test passed" : "test failed") << std::endl;
+
+            }
+          }
+        }
+        //log result 
       }
 
       return ret;

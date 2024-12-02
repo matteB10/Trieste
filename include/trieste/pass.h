@@ -4,6 +4,7 @@
 #include "rewrite.h"
 #include "trieste/intrusive_ptr.h"
 #include "wf.h"
+#include "test.h"
 
 #include <vector>
 
@@ -42,6 +43,8 @@ namespace trieste
     F post_once;
     std::map<Token, F> pre_;
     std::map<Token, F> post_;
+
+    std::vector<unit_test::Test> tests_;
 
   public:
     PassDef(
@@ -136,6 +139,19 @@ namespace trieste
       for (const auto& type : types)
         post_[type] = f;
     }
+
+    void unit_test(std::string desc, std::function<void(unit_test::Test&)> register_test)
+    { 
+      unit_test::Test test = {desc};
+      register_test(test);
+      tests_.push_back(test);
+    }
+
+    std::vector<unit_test::Test> tests()
+    {
+      return tests_;
+    }
+
 
     template<typename... Ts>
     void rules(Ts... r)
