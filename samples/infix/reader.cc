@@ -3,6 +3,7 @@
 namespace
 {
   using namespace trieste::wf::ops;
+  using namespace trieste::unit_test;
   using namespace infix;
 
   // | is used to create a Choice between all the elements
@@ -159,7 +160,7 @@ namespace
 
   PassDef add_subtract()
   {
-    return {
+    PassDef add_sub = {
       "add_subtract",
       wf_pass_add_subtract,
       dir::topdown,
@@ -174,6 +175,14 @@ namespace
         (T(Add, Subtract))[Op] << End >>
           [](Match& _) { return err(_(Op), "No arguments"); },
       }};
+      add_sub.unit_test("add 1 + 3", [](Test& test){
+        auto before = (Expression << (Int ^ "1")) << (Add ^ "+") << (Int ^ "3");
+        auto expected = Expression << (Expression << ((Add ^ "+") 
+                                   << (Expression << (Int ^ "1"))
+                                   << (Expression << (Int ^ "3"))));
+        test.isEqual(before, expected);
+      });    
+    return add_sub;
   }
 
   PassDef trim()
