@@ -205,15 +205,22 @@ namespace trieste
             for (auto assertion : t.assertions){
             logging::Output() << "Running unit tests for pass" << pass->name() << std::endl 
                               << "Testing " << t.desc_ << std::endl
-                              << "before:\n" << assertion.before_ << std::endl;
+                              << "before:\n" << assertion.before() << std::endl;
 
-            auto [actual, _, __] = pass->run(assertion.before_); 
-            bool ok = assertion.assertion(actual,assertion.expected_);
-         
-            logging::Output() << "expected: " << assertion.expected_ << std::endl
+            auto [actual, _, __] = pass->run(assertion.before()); 
+           
+            bool ok = assertion.assertion(actual,assertion.expected());
+        
+            if (assertion.expected()){
+            logging::Output() << assertion.type() << ":" << std::endl
+                              << "expected: " << assertion.expected() << std::endl
                               << "actual: " << actual << std::endl
                               << (ok ? "test passed" : "test failed") << std::endl;
-
+            } else {
+              logging::Output() << assertion.type() << ":" << std::endl 
+                                << "actual : " << actual << std::endl
+                                << (ok ? "test passed" : "test failed") << std::endl;
+            }
             }
           }
         }

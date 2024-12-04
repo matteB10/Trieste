@@ -175,13 +175,17 @@ namespace
         (T(Add, Subtract))[Op] << End >>
           [](Match& _) { return err(_(Op), "No arguments"); },
       }};
-      add_sub.unit_test("add 1 + 3", [](Test& test){
-        auto before = (Expression << (Int ^ "1")) << (Add ^ "+") << (Int ^ "3");
-        auto expected = Expression << (Expression << ((Add ^ "+") 
+      add_sub.unit_test("Adding 1 + 3", [](Test& test){
+        auto before = Expression << (Int ^ "1") << Add  << (Int ^ "3");
+        auto expected = Expression << (Expression << (Add  
                                    << (Expression << (Int ^ "1"))
-                                   << (Expression << (Int ^ "3"))));
-        test.isEqual(before, expected);
-      });    
+                                   << (Expression << (Int ^ "4"))));
+        test.rewritesInto(before, expected);
+      });   
+      add_sub.unit_test("Add with no children", [](Test& test){
+        Node tree = Add;
+        test.rewritesIntoErr(tree);
+      });  
     return add_sub;
   }
 
