@@ -208,7 +208,8 @@ namespace trieste
                               << "before:\n" << assertion.before() << std::endl;
 
             auto [actual, _, __] = pass->run(assertion.before()); 
-           
+            actual = actual->type() == Top ? actual : actual->front(); //Disregard dummy root 
+            
             bool ok = assertion.assertion(actual,assertion.expected());
         
             if (assertion.expected()){

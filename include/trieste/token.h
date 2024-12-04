@@ -188,6 +188,9 @@ namespace trieste
   inline const auto ErrorMsg = TokenDef("errormsg", flag::print | flag::internal);
   inline const auto ErrorAst = TokenDef("errorast", flag::internal);
 
+  // Special tokens for unit testing
+  inline const auto TestTop = TokenDef("testtop"); // dummy top 
+
   namespace detail
   {
     inline std::map<std::string_view, Token>& token_map()

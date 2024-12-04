@@ -2,13 +2,14 @@
 
 #include "token.h"
 #include "ast.h"
+#include "rewrite.h"
 
 namespace trieste {
 
     namespace unit_test{  
 
     using assertFunction = std::function<bool(Node,Node)>;
-
+    using namespace detail;
     struct Assertion {
         
         Node before_;
@@ -40,9 +41,11 @@ namespace trieste {
         } 
 
         void rewritesInto(Node before, Node expected){
+            if (before->type() != Top) before = TestTop << before; 
+            
             assertions.push_back(
                 {before, 
-                 expected, 
+                expected,
                  "rewrites into",
                  [](Node res, Node exp)
                     {
@@ -53,13 +56,16 @@ namespace trieste {
         }
 
         void rewritesIntoErr(Node before){
+            if (before->type() != Top) before = TestTop << before;
+            
             assertions.push_back(
                 {before, 
                 std::nullopt,
                 "expected error",
                  [](Node res, Node )
                     {
-                    return res->get_contains_error();
+                    // Add dummy root since res might itself be the Error node
+                    return (TestTop << res)->get_contains_error();
                     }
                 }
             );
