@@ -1,6 +1,7 @@
 #pragma once 
 
 #include "token.h"
+#include "trieste.h"
 
 namespace trieste 
 {
@@ -19,8 +20,20 @@ namespace trieste
           }
       };
 
-      inline PropResult Success() { return {std::nullopt};}
-      inline PropResult Fail() { return {nullptr}; }
-      inline PropResult Fail(Node reason) { return {reason}; }
+          inline PropResult Success() { return {std::nullopt};}
+          inline PropResult Fail() { return {nullptr}; }
+          inline PropResult Fail(Node reason) { return {reason}; }
+          inline PropResult Fail(std::string reason) { return {Error ^ reason}; }
+
+        using PropFunc = std::function<prop::PropResult(Node, Node)>;
+
+        struct Prop {
+            std::string name; 
+            PropFunc f;
+
+            PropFunc prop_func(){
+                return f; 
+            }
+        };
     }
 }

@@ -278,21 +278,6 @@ namespace trieste
       return ok;
     }
 
-    bool validate_properties(PassDef pass,
-                             Node pre,
-                             Node post,  
-                             Nodes& errors)
-    {
-      bool ok = true;
-      if(check_prop) 
-      {
-          std::cout << "checking props...";
-          ok = pass.check_props(pre, post, errors); 
-      }
-
-      return ok; 
-    }
-
     /**
      * @brief Run the supplied passes on the Ast.
      *
@@ -330,11 +315,6 @@ namespace trieste
 
         ok = validate(ast, errors);
 
-        // Check pass properties if flag is set
-        // pass errors instead and make errors in validate_properties
-        ok = validate_properties(*pass,old_ast,ast,errors) && ok; 
-
-        //TODO: add props feedback to stats?
         auto then = std::chrono::high_resolution_clock::now();
         stats = {
           count,

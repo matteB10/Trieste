@@ -64,8 +64,7 @@ namespace
 
   PassDef expressions()
   {
-    PassDef exprs =
-     {
+    return {
       "expressions",
       wf_pass_expressions,
       dir::topdown,
@@ -131,20 +130,6 @@ namespace
         T(Group)[Group] >>
           [](Match& _) { return err(_[Group], "syntax error"); },
       }};
-    exprs.prop("check length", [](Node pre, Node post){
-      auto file = pre->front();
-      auto calc = post->front();
-      auto pre_dist = (std::distance(file->begin(),file->end()));
-      auto post_dist = (std::distance(calc->begin(),calc->end()));
-      if (pre_dist == post_dist)
-      {
-        return trieste::prop::Success();
-      } 
-      else {
-        return trieste::prop::Fail();
-      } 
-    });
-    return exprs;
   }
 
   inline const auto ExpressionArg = T(Expression, Ident) / Number;
@@ -174,7 +159,7 @@ namespace
 
   PassDef add_subtract()
   {
-    PassDef add_sub = {
+    return {
       "add_subtract",
       wf_pass_add_subtract,
       dir::topdown,
@@ -189,7 +174,6 @@ namespace
         (T(Add, Subtract))[Op] << End >>
           [](Match& _) { return err(_(Op), "No arguments"); },
       }};
-    return add_sub; 
   }
 
   PassDef trim()

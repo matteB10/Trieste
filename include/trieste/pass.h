@@ -20,12 +20,12 @@ namespace trieste
 
   class PassDef;
   using Pass = intrusive_ptr<PassDef>;
+  using namespace trieste::prop;
 
   class PassDef : public intrusive_refcounted<PassDef>
   {
   public:
     using F = std::function<size_t(Node)>;
-    using Prop = std::function<prop::PropResult(Node, Node)>;
 
   private:
     static const int NOCHANGE = -1;
@@ -44,7 +44,7 @@ namespace trieste
     F post_once;
     std::map<Token, F> pre_;
     std::map<Token, F> post_;
-    std::vector<std::pair<std::string, Prop>> props_;
+    std::map<Token, std::vector<Prop>> props_;
 
   public:
     PassDef(
@@ -140,12 +140,27 @@ namespace trieste
         post_[type] = f;
     }
 
-    void prop(std::string name, Prop p)
+    void prop(Token root, std::string name, PropFunc f)
     {
-      props_.push_back(std::pair(name,p));
+      if (props_.find(root) == props_.end()){
+        props_[root] = {};
+      }
+      props_[root].push_back({name,f});
     }
 
-    std::vector<std::pair<std::string, Prop>> props()
+    void prop(std::string name, PropFunc f)
+    {
+      prop(Top, name, f);
+    }
+
+    void add_props(const std::initializer_list<std::pair<Token,Prop>>& props)
+    {
+      for(auto [root,prop] : props){
+        props_[root].push_back(prop);  
+      }
+    }
+
+    std::map<Token,std::vector<Prop>> props()
     {
       return props_;
     }
@@ -190,30 +205,13 @@ namespace trieste
 
         if (flag(dir::once))
           break;
-      } while (changes > 0);
+      } while (changes  > 0);
 
       if (post_once)
         changes_sum += post_once(node);
-
+  
       return {node, count, changes_sum};
     }
-
-  bool check_props(Node pre, Node post, Nodes& errors)
-  {
-    bool ok = true; 
-    for (auto [name,prop] : props_)
-    {
-      auto result = prop(pre,post);
-      if (!result) 
-      {
-        Node err_ast = result.reason(); 
-        auto err_msg = "property '" + name + "' failed\n";
-        errors.push_back(Error << (ErrorMsg ^ err_msg) << err_ast);
-        ok = false;
-      }
-    }
-    return ok; 
-  }
 
   private:
     void compile_rules()

@@ -104,7 +104,7 @@ namespace trieste
       return check_props_;
     }
 
-    Fuzzer& check_props(bool check)
+     Fuzzer& check_props(bool check)
     {
       check_props_ = check;
       return *this;
@@ -147,6 +147,7 @@ namespace trieste
         auto& wf = pass->wf();
         auto& prev = i > 1 ? passes_.at(i - 2)->wf() : *input_wf_;
 
+        std::cout << "Pass: " << pass->name() << std::endl; 
         if (!prev || !wf)
         {
           logging::Info() << "Skipping pass: " << pass->name() << std::endl;
@@ -157,16 +158,45 @@ namespace trieste
         context.push_back(prev);
         context.push_back(wf);
 
-        for (size_t seed = start_seed_; seed < start_seed_ + seed_count_;
+        auto properties = pass->props();
+        // Check properties starting from other roots than Top 
+        if (check_props_ && !properties.empty()){
+          for (auto [root, props] : properties){
+            ret = run_test(start_seed_, seed_count_, prev, wf, pass, root, props); 
+          } 
+        // If not checked WF for a full tree (rooted with Top) when checking
+        // properties, check WF 
+        } if (properties.find(Top) == properties.end()){
+          //Check WF only 
+          ret = run_test(start_seed_, seed_count_, prev, wf, pass, Top, {}); 
+        }
+        context.pop_front();
+        context.pop_front();
+      }
+
+      return ret;
+    }
+
+  int run_test(size_t start_seed, 
+               size_t seed_count,
+               wf::Wellformed prev,
+               wf::Wellformed wf,
+               Pass pass, 
+               Token root, 
+               std::vector<Prop> props){
+    int ret; 
+    for (size_t seed = start_seed; seed < start_seed + seed_count;
              seed++)
         {
-          auto ast = prev.gen(generators_, seed, max_depth_);
+          // Gen tree 
+          auto ast = prev.gen(root, generators_, seed, max_depth_);
           logging::Trace() << "============" << std::endl
                            << "Pass: " << pass->name() << ", seed: " << seed
                            << std::endl
                            << "------------" << std::endl
                            << ast << "------------" << std::endl;
 
+          auto ast_copy = ast->clone();
           auto [new_ast, count, changes] = pass->run(ast);
           logging::Trace() << new_ast << "------------" << std::endl
                            << std::endl;
@@ -184,16 +214,13 @@ namespace trieste
 
           if (!ok)
           {
-            // We haven't printed what failed with Trace earlier, so do it
-            // now. Regenerate the start Ast for the error message.
-            auto prev_ast = prev.gen(generators_, seed, max_depth_);
             logging::Error err;
             if (!logging::Trace::active())
             {
               err << "============" << std::endl
                   << "Pass: " << pass->name() << ", seed: " << seed << std::endl
                   << "------------" << std::endl
-                  << prev_ast << "------------"
+                  << ast_copy << "------------"
                   << std::endl
                   << new_ast;
             }
@@ -207,19 +234,27 @@ namespace trieste
           }
           // Only test properties if pass produced well-formed tree 
           // and there are props to test 
-          else if(check_props_ && !pass->props().empty())
+          // TODO: report if properties are tester, 
+          // now properties are silently not run when we detect an error 
+          else if(check_props_)
           {
-            
-            auto prev_ast = prev.gen(generators_, seed, max_depth_);
-            ok = pass->check_props(prev_ast, new_ast, errors); 
-            //std::cout << "cheked props\n";
+            for(auto prop : props){
+              auto result = prop.f(ast, new_ast); 
+              if (!result) 
+              {
+                Node err_ast = result.reason(); 
+                auto err_msg = "property '" + prop.name + "' failed\n";
+                errors.push_back(Error << (ErrorMsg ^ err_msg) << err_ast);
+                ok = false;
+              }
+            }
             if (!ok)
             {
               logging::Error err;
               err << "============" << std::endl
                   << "Pass: " << pass->name() << ", seed: " << seed << std::endl
                   << "------------" << std::endl
-                  << prev_ast << "------------"
+                  << ast_copy << "------------"
                   << std::endl
                   << new_ast;
 
@@ -254,12 +289,7 @@ namespace trieste
             }
           }
         }
-
-        context.pop_front();
-        context.pop_front();
-    }
-
-      return ret;
-    }
+        return ret; 
+    } 
   };
 }

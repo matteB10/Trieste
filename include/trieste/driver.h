@@ -112,7 +112,9 @@ namespace trieste
       bool test_failfast = false;
       test->add_flag("-f,--failfast", test_failfast, "Stop on first failure");
 
-      test->add_flag("-q", propcheck, "Check test properties.");
+      auto prop_test = false;
+      test->add_flag("--prop", prop_test, "Run property tests");
+      
       try
       {
         app.parse(argc, argv);
@@ -197,7 +199,7 @@ namespace trieste
           .start_index(reader.pass_index(test_start_pass))
           .end_index(reader.pass_index(test_end_pass))
           .start_seed(test_seed)
-          .check_props(propcheck)
+          .check_props(prop_test)
           .test();
       }
 

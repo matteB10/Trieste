@@ -618,18 +618,29 @@ namespace trieste
         return ok;
       }
 
-      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth) const
+      Node gen(Token token, GenNodeLocationF gloc, Seed seed, size_t target_depth) const
       {
         auto g = Gen(
           compute_minimum_distance_to_terminal(target_depth),
           gloc,
           seed,
           target_depth);
-
         auto top = NodeDef::create(Top);
-        ast::detail::top_node() = top;
-        gen_node(g, 0, top);
-        return top;
+        ast::detail::top_node() = top; 
+        Node root = Top; 
+
+        // We always need Top as root to generate fresh locations 
+        if (token != Top){
+          root = NodeDef::create(token); //Use this token as root in tree generation
+          top->push_front(root);
+        }
+        gen_node(g, 0, root);
+        return root;
+      }
+
+       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth) const
+      {
+        return gen(Top,gloc,seed,target_depth);
       }
 
       std::size_t min_dist_to_terminal(
