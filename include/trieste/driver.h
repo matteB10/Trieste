@@ -115,6 +115,10 @@ namespace trieste
       bool test_failfast = false;
       test->add_flag("-f,--failfast", test_failfast, "Stop on first failure");
 
+      // Test passes in sequence
+      bool test_sequence = false; 
+      test->add_flag("--sequence", test_sequence, "Run all passes on generated tree starting from START");
+
       std::optional<size_t> test_max_retries = std::nullopt;
       test->add_option("-r,--max_retries", test_max_retries,
                        "Maximum number of retries for finding unique trees");
@@ -217,7 +221,18 @@ namespace trieste
           .end_index(reader.pass_index(test_end_pass))
           .start_seed(test_seed);
 
-        return *entropy ? fuzzer.debug_entropy() : fuzzer.test();
+        if(*entropy) 
+        { 
+          return fuzzer.debug_entropy();
+        }
+        else if (test_sequence) 
+        { 
+          return fuzzer.test_sequence();
+        }
+        else 
+        {
+          return fuzzer.test();
+        }
       }
 
       return ret;
