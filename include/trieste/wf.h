@@ -27,6 +27,20 @@ namespace trieste
     using TokenTerminalDistance = std::map<Token, std::size_t>;
     using SymtabKeys = std::pair<std::vector<Token>, size_t>;
 
+
+    struct Sampling{
+      std::map<trieste::Token, trieste::Nodes> sample_nodes;
+      size_t sampling_level; // 0: no sampling, 1: node sampling, 2: subtree sampling
+
+      Sampling(
+        std::map<trieste::Token, trieste::Nodes> sample_nodes_,
+        size_t sampling_level_)
+      : sample_nodes(sample_nodes_), 
+        sampling_level(sampling_level_)
+      {}
+
+
+    };
     struct Gen
     {
       TokenTerminalDistance token_terminal_distance;
@@ -37,6 +51,9 @@ namespace trieste
       double alpha;
       std::map<Token, std::pair<std::vector<Token>, size_t>> binding_keys;
       bool gen_bound_vars;
+      // std::map<Token, std::vector<Node>> sample_nodes;
+      // bool shallow_sampling;
+      Sampling sampling;
 
       /* The generator chooses which token to emit next. It makes this choice
        * using a weighted probability distribution, where the weights are based
@@ -59,6 +76,8 @@ namespace trieste
         size_t target_depth_,
         std::map<Token, SymtabKeys> binding_keys_,
         bool gen_bound_vars_,
+        std::map<trieste::Token, trieste::Nodes>& sample_nodes,
+        size_t sampling_level,
         double alpha_ = 1,
         size_t ceiling_multiplier_ = 2)
       : token_terminal_distance(token_terminal_distance_),
@@ -68,7 +87,8 @@ namespace trieste
         ceiling_depth(ceiling_multiplier_ * target_depth),
         alpha(alpha_),
         binding_keys(binding_keys_),
-        gen_bound_vars(gen_bound_vars_)
+        gen_bound_vars(gen_bound_vars_),
+        sampling(Sampling(sample_nodes, sampling_level))
       {
         // Warm up RNG
         for(int i = 0; i < 10; i++)
@@ -232,6 +252,33 @@ namespace trieste
           }
           // Use fresh location
           return gloc(rand, child);
+        }
+
+        void gen_sample(Node& node, size_t sampling_level)
+        {
+          auto& samples = sampling.sample_nodes[node->type()];
+          size_t choice = rand() % samples.size();
+          auto sample = samples[choice];
+
+          // Copy children from sample
+          for (auto& child : *sample)
+          {
+            auto child_clone = child->clone(); 
+            if (sampling_level == 1) //Sample immediate child, but remove grandchildren
+            {
+              child_clone->erase(child_clone->begin(), child_clone->end()); 
+            }
+            node->push_back(child_clone);
+          }
+          //TODO: Should we use fresh location?
+        }
+
+        std::map<Token, std::vector<Node>> sample_nodes() {
+          return sampling.sample_nodes;
+        }
+
+        size_t sampling_level() {
+          return sampling.sampling_level;
         }
     };
     struct Choice
@@ -769,7 +816,8 @@ namespace trieste
       }
 
       public:
-      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
+      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
+        std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level) const
       {
         // Collect map of tokens to their binding token and the corresponding
         // index
@@ -783,11 +831,19 @@ namespace trieste
           seed,
           target_depth,
           binding_keys,
-          gen_bound);
+          gen_bound, 
+          sample_nodes, 
+          sampling_level
+        );
         auto top = NodeDef::create(Top);
         ast::detail::top_node() = top;
         gen_node(g, 0, top);
         return top;
+      }
+
+      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
+      {
+        return gen(gloc, seed, target_depth, gen_bound, {}, 0);
       }
 
       std::size_t min_dist_to_terminal(
@@ -872,9 +928,25 @@ namespace trieste
         if (find == shapes.end())
           return;
 
-        std::visit(
-          [&](auto& shape) { shape.gen(g, depth, node); }, find->second);
+        // We check depth > 0 to not use a single unit test 
+        // If we have sample nodes for this type and sampling is enabled 
+        auto sample_nodes = g.sample_nodes();
+        if (depth > 0 && 
+            g.sampling_level() != 0 && 
+            (sample_nodes.find(node->type()) != sample_nodes.end()) &&
+            g.next() % 2 == 0)
+        {
+          g.gen_sample(node, g.sampling_level());
+        }
 
+        // Generate based on WF
+        else 
+          std::visit([&](auto& shape) { shape.gen(g, depth, node); }, find->second);
+
+        if (g.sampling_level() > 1) //Subtree sampling, discontinue generation
+          return;
+  
+        // Continue generating next layer        
         for (auto& child : *node)
           gen_node(g, depth + 1, child);
       }
@@ -909,6 +981,38 @@ namespace trieste
         });
 
         return ok;
+      }
+
+      // void gen_sample(
+      //   Node tree, std::map<Token, std::vector<Node>> sample_nodes) const
+      // {
+      //   tree->push_back(
+      //     sample_nodes[tree->type()][rand() % sample_nodes[tree->type()].size()]
+      //       ->clone());
+      // }
+
+      Node replace_random_sample(
+        Node tree, std::map<Token, std::vector<Node>> sample_nodes) const
+      {
+        // Replace matching nodes in the tree with a random sample from the
+        // provided sample nodes.
+        tree->traverse([&](Node& n) {
+          if (sample_nodes.find(n->type()) == sample_nodes.end())
+            return true; // No matching nodes, continue traversal
+          {
+            // Randomly decide whether to replace this occurrence. This
+            // allows only some matching nodes to be replaced
+            if ((rand() % 2) == 0)
+            {
+              auto i = rand() % sample_nodes.at(n->type()).size();
+              auto& replacement = sample_nodes.at(n->type())[i];
+              n->parent()->replace(n, replacement->clone());
+              return false;
+            }
+          }
+          return true;
+        });
+        return tree;
       }
     };
 
