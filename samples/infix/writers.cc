@@ -24,14 +24,14 @@ namespace
     ;
   // clang-format on  
 
-  bool exists(const NodeRange& n)
+  bool exists(const Node& n)
   {
-    return !n.front()->lookup().empty();
+    return !n->lookup().empty();
   }
 
-  bool can_replace(const NodeRange& n)
+  bool can_replace(const Node& n)
   {
-    auto defs = n.front()->lookup();
+    auto defs = n->lookup();
     if (defs.size() == 0)
     {
       return false;
@@ -136,8 +136,8 @@ namespace
             return Float ^ std::to_string(lhs / rhs);
           },
 
-        T(Expression) << (T(Ref) << T(Ident)[Id])(
-          [](auto& n) { return can_replace(n); }) >>
+        T(Expression) << (T(Ref) << T(Ident)[Id](
+          [](auto& n) { return can_replace(n.front()); })) >>
           [](Match& _) {
             auto defs = _(Id)->lookup();
             auto assign = defs.front();
@@ -151,8 +151,8 @@ namespace
 
         // errors
 
-        T(Expression) << (T(Ref) << T(Ident)[Id])(
-          [](auto& n) { return !exists(n); }) >>
+        T(Expression) << (T(Ref) << T(Ident)(
+          [](auto& n) { return !exists(n.front()); })) >>
           [](Match&) {
             // NB this case shouldn't happen at all
             // during this pass and as such is not
