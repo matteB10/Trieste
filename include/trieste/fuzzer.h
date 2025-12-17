@@ -9,6 +9,8 @@
 
 namespace trieste
 {
+  using InputSpec =
+      std::optional<std::variant<std::filesystem::path, Source>>;
   class Fuzzer
   {
   private:
@@ -22,7 +24,9 @@ namespace trieste
     size_t start_index_;
     size_t end_index_;
     size_t max_retries_;
-    bool bound_vars_; 
+    bool bound_vars_; // Generate bound variable names
+    std::map<Token,std::vector<Node>> sample_nodes_;
+    size_t sampling_level_;
 
     double calculate_entropy(std::vector<uint8_t>& byte_values) {
       std::map<uint8_t, double> freq;
@@ -43,6 +47,40 @@ namespace trieste
       return entropy;
     }
 
+    void update_sample_nodes(Pass& pass)
+    {
+      auto it = sample_nodes_.find(Top);
+      if (it == sample_nodes_.end())
+        return;
+
+      // Make a local copy of the Top sample programs so we can clear and
+      // repopulate `sample_nodes_` without mutating the container we're
+      // iterating over. 
+      auto sample_progs = it->second;
+      sample_nodes_.clear();
+
+      for (auto& node : sample_progs)
+      {
+        if (!node)
+          continue;
+
+        auto [node_updated, cn, ch] = pass->run(node);
+
+        if (!node_updated)
+          continue;
+
+        // Add the updated top node.
+        sample_nodes_[Top].push_back(node_updated);
+
+        // Repopulate sample nodes for next round from the updated tree.
+        node_updated->traverse([&](auto& n) {
+          if (n != Error)
+            sample_nodes_[n->type()].push_back(n);
+          return true;
+        });
+      }
+    }
+
   public:
     Fuzzer() {}
 
@@ -60,7 +98,9 @@ namespace trieste
       start_index_(1),
       end_index_(passes.size()),
       max_retries_(100),
-      bound_vars_(true)
+      bound_vars_(true),
+      sample_nodes_({}),
+      sampling_level_(0)
     {}
 
     Fuzzer(const Reader& reader)
@@ -214,6 +254,16 @@ namespace trieste
       return *this;
     }
 
+    Fuzzer& sample_nodes(std::map<Token,std::vector<Node>> sample_nodes) {
+      sample_nodes_ = sample_nodes;
+      return *this;
+    }
+
+    Fuzzer& sampling_level(size_t sampling_level) {
+      sampling_level_ = sampling_level;
+      return *this;
+    }
+
     int test()
     {
       WFContext context;
@@ -321,6 +371,145 @@ namespace trieste
           if (ok) passed_count++;
           if (ok && changes == 0) trivial_count++;
         }
+
+        logging::Info info;
+
+        if (failed_count > 0) info << "  not WF " << failed_count << " times." << std::endl;
+
+        if (error_count > 0) info << "  errored " << error_count << " times." << std::endl;
+        for (auto [msg, count] : error_msgs) {
+          info << "    " << msg << ": " << count << std::endl;
+        }
+
+        if ((error_count > 0 && passed_count > 0) || trivial_count > 0)
+        {
+          info << "  passed " << passed_count << " times." << std::endl;
+          if (trivial_count > 0) info << "    trivial: " << trivial_count << std::endl;
+        }
+
+        size_t hash_unique = ast_hashes.size();
+        info << "  " << ast_hashes.size() << " hash unique "
+             << (hash_unique == 1? "tree": "trees")
+             << " (" << retries << (retries == 1? " retry": " retries") << ")." << std::endl;
+
+        context.pop_front();
+        context.pop_front();
+      }
+
+      return ret;
+    }
+
+
+    int test_with_samples()
+    {
+      WFContext context;
+      int ret = 0;
+
+      for (size_t i = start_index_; i <= end_index_; i++)
+      {
+        auto& pass = passes_.at(i - 1);
+        auto& wf = pass->wf();
+        auto& prev = i > 1 ? passes_.at(i - 2)->wf() : *input_wf_;
+
+        size_t passed_count = 0;
+        size_t trivial_count = 0;
+        size_t error_count = 0;
+        size_t failed_count = 0;
+        std::map<std::string, size_t> error_msgs;
+        std::set<size_t> ast_hashes;
+
+        if (!prev || !wf)
+        {
+          logging::Info() << "Skipping pass: " << pass->name() << std::endl;
+          continue;
+        }
+
+        logging::Info() << "Testing pass: " << pass->name() << std::endl;
+        context.push_back(prev);
+        context.push_back(wf);
+
+        size_t retry_seed = start_seed_ + seed_count_;
+        size_t retries = 0;
+
+        for (size_t seed = start_seed_; seed < start_seed_ + seed_count_;
+             seed++)
+        {
+          size_t actual_seed = seed;
+
+          // WHATS NEW: Access sample nodes for testing in sample_nodes
+          
+          auto ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
+            sample_nodes_, sampling_level_);
+
+          size_t hash = ast->hash();
+          while (ast_hashes.find(hash) != ast_hashes.end() && retries < max_retries_) {
+            actual_seed = retry_seed;
+            ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
+              sample_nodes_, sampling_level_);
+            hash = ast->hash();
+            retry_seed++;
+            retries++;
+          }
+
+          ast_hashes.insert(hash);
+
+          logging::Trace() << "============" << std::endl
+                           << "Pass: " << pass->name() << ", seed: " << actual_seed
+                           << std::endl
+                           << "------------" << std::endl
+                           << ast << "------------" << std::endl;
+
+          auto [new_ast, count, changes] = pass->run(ast);
+          auto ok = wf.build_st(new_ast);
+          if (ok)
+          {
+            Nodes errors;
+            new_ast->get_errors(errors);
+            if (!errors.empty())
+            {
+              // Pass added error nodes, so doesn't need to satisfy wf.
+              error_count++;
+              Node error = errors.front();
+              for (auto& c : *error) {
+                  if(c->type() == ErrorMsg) {
+                      error_msgs[std::string(c->location().view())]++;
+                      break;
+                  }
+              }
+              continue;
+            }
+          }
+          ok = wf.check(new_ast) && ok;
+          if (!ok)
+          {
+            logging::Error err;
+            if (!logging::Trace::active())
+            {
+              // We haven't printed what failed with Trace earlier, so do it
+              // now. Regenerate the start Ast for the error message.
+              err << "============" << std::endl
+                  << "Pass: " << pass->name() << ", seed: " << actual_seed << std::endl
+                  << "------------" << std::endl
+                  << prev.gen(generators_, actual_seed, max_depth_, bound_vars_) << "------------"
+                  << std::endl
+                  << new_ast;
+            }
+
+            err << "============" << std::endl
+                << "Failed pass: " << pass->name() << ", seed: " << actual_seed
+                << std::endl;
+            ret = 1;
+
+            failed_count++;
+
+            if (failfast_)
+              return ret;
+          }
+          if (ok) passed_count++;
+          if (ok && changes == 0) trivial_count++;
+        }
+
+        update_sample_nodes(pass); // WHATS NEW: Update sample nodes after running the pass
 
         logging::Info info;
 

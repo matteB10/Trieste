@@ -125,6 +125,7 @@ namespace trieste
                        "Generate bound variable names if possible");
 
       // Subcommand to test entropy of random number generation.
+
       auto entropy = test->add_subcommand("debug_entropy",
                                           "Test entropy of random number generation, using seed_count seeds and max_depth warm-up");
 
@@ -158,6 +159,21 @@ namespace trieste
         "-i,--ignore_token",
         ignored_tokens,
         "Ignore this token when checking patterns against well-formedness rules.");
+
+      auto mutate = test->add_subcommand("mutate",
+                       "Use test program and mutate AST during testing. Use optional test files in mutation");
+      std::filesystem::path test_path;
+      mutate->add_option("path", test_path, "Path to file to compile.")->required();
+
+      std::filesystem::path sample_files;
+      test->add_option(
+        "--samples", sample_files,
+        "Files to extract sample nodes from for fuzz testing");
+      
+      size_t sampling_level = 0;
+      test->add_option(
+        "--sampling-level", sampling_level,
+        "Level of sampling to use for selecting sample nodes");
 
       try
       {
@@ -226,6 +242,9 @@ namespace trieste
       }
       else if (*test)
       {
+        std::map<Token,std::vector<Node>> sample_trees = {};
+        Node test_program; 
+
         if (pass_names_no_parse.empty())
         {
           logging::Error() << "No passes available for testing." << std::endl;
@@ -245,17 +264,99 @@ namespace trieste
           test_end_pass = test_start_pass;
         }
 
-        Fuzzer fuzzer = Fuzzer(reader)
-          .max_retries(test_max_retries? *test_max_retries: test_seed_count * 2)
-          .max_depth(test_max_depth)
-          .failfast(test_failfast)
-          .seed_count(test_seed_count)
-          .start_index(reader.pass_index(test_start_pass))
-          .end_index(reader.pass_index(test_end_pass))
-          .start_seed(test_seed)
-          .bound_vars(bound_vars);
+        // If sample files are given, iterate each file and apply
+        // the existing per-file logic. For .trieste files we extract the
+        // embedded start-pass; for other files we parse them as test
+        if (std::filesystem::is_directory(sample_files))
+        {
+          Node sample_program;
 
-        return *entropy ? fuzzer.debug_entropy() : fuzzer.test();
+          // recursive traversal use std::filesystem::recursive_directory_iterator instead.
+          for (auto const& entry : std::filesystem::directory_iterator(sample_files))
+          {
+            auto file = entry.path();
+
+            // Treat regular files and symlinks as files. Skip directories.
+            if (!std::filesystem::is_regular_file(file) && !std::filesystem::is_symlink(file))
+              continue;
+
+            // Only process files with the expected extensions.
+            auto ext = file.extension().string();
+            auto file_ending = "." + language_name;
+            if (ext != ".trieste" && ext != file_ending)
+              continue;
+
+            if (ext == ".trieste")
+            {
+              auto source = SourceDef::load(file);
+              auto view = source->view();
+              auto pos = std::min(view.find_first_of('\n'), view.size());
+              auto pos2 =
+                std::min(view.find_first_of('\n', pos + 1), view.size());
+              auto pass = view.substr(pos + 1, pos2 - pos - 1);
+
+              if (view.compare(0, pos, reader.language_name()) != 0)
+              {
+                logging::Debug() << "File " << file
+                                 << " does not start with the language name \""
+                                 << reader.language_name() << "\"" << std::endl;
+              }
+
+              test_start_pass =
+                reader.start_pass(pass).offset(pos2 + 1).start_pass();
+            }
+            else
+            {
+              if (reader.pass_index(test_start_pass) == 1)
+                sample_program = reader.parser().parse(file); // Run parser only
+              else 
+              { 
+                // Get the pass prior to the desired start pass
+                auto prev_pass = reader.pass_names().at(reader.pass_index(test_start_pass)-1);
+
+                reader.executable(argv[0])
+                  .file(file)
+                  .wf_check_enabled(wfcheck)
+                  .debug_enabled(false)
+                  .end_pass(prev_pass);
+                // TODO: Fix OBOE Run up to start pass?
+                std::cout << "Running until pass: :" << reader.end_pass() << std::endl;
+                sample_program = reader.read().ast; // Parse file as test program
+              }
+              
+              if (!sample_program)
+              {
+                logging::Error()
+                  << "Failed to parse test program from " << file << std::endl;
+                return 1;
+              }
+              // TODO: check wf for sample_program if test suite contains 
+              // negative test cases 
+              // Add all non-error nodes to sample trees
+              sample_program->traverse([&](auto& n) {
+                if (n != Error)
+                  sample_trees[n->type()].push_back(n); //Not cloned until inserted in a tree 
+                return true;
+              });
+            }
+          }
+        }
+        Fuzzer fuzzer =
+          Fuzzer(reader)
+            .max_retries(
+              test_max_retries ? *test_max_retries : test_seed_count * 2)
+            .max_depth(test_max_depth)
+            .failfast(test_failfast)
+            .seed_count(test_seed_count)
+            .start_index(reader.pass_index(test_start_pass))
+            .end_index(reader.pass_index(test_end_pass))
+            .start_seed(test_seed)
+            .bound_vars(bound_vars)
+            .sample_nodes(sample_trees)
+            .sampling_level(sampling_level);
+
+        return *entropy ? fuzzer.debug_entropy() :
+                          fuzzer.test_with_samples();
       }
       else if (*check)
       {
