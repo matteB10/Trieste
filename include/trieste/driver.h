@@ -21,9 +21,89 @@ namespace trieste
     CLI::App app;
     Options* options;
 
-  public:
-    Driver(const Reader& reader_, Options* options_ = nullptr)
-    : reader(reader_), app(reader_.language_name()), options(options_)
+  private:
+    int process_file(
+      const std::filesystem::path& bin, 
+      const std::filesystem::path& file, 
+      bool wfcheck,
+      const std::string& language_name,
+      std::string& test_start_pass,
+      Node& sample_program,
+      std::map<Token, std::vector<Node>>& sample_trees)
+    {
+      // Treat regular files and symlinks as files. Skip directories.
+      if (
+        !std::filesystem::is_regular_file(file) &&
+        !std::filesystem::is_symlink(file))
+        return 1;
+
+      // Only process files with the expected extensions.
+      auto ext = file.extension().string();
+      auto file_ending = "." + language_name;
+      if (ext != ".trieste" && ext != file_ending)
+        return 1;
+
+      if (ext == ".trieste")
+      {
+        auto source = SourceDef::load(file);
+        auto view = source->view();
+        auto pos = std::min(view.find_first_of('\n'), view.size());
+        auto pos2 = std::min(view.find_first_of('\n', pos + 1), view.size());
+        auto pass = view.substr(pos + 1, pos2 - pos - 1);
+
+        if (view.compare(0, pos, reader.language_name()) != 0)
+        {
+          logging::Debug() << "File " << file
+                           << " does not start with the language name \""
+                           << reader.language_name() << "\"" << std::endl;
+        }
+
+        test_start_pass = reader.start_pass(pass).offset(pos2 + 1).start_pass();
+      }
+      else
+      {
+        if (reader.pass_index(test_start_pass) == 1)
+        {
+          sample_program = reader.parser().parse(file); // Run parser only
+          reader.end_pass("parse");
+        }
+        else
+        {
+          // Get the pass prior to the desired start pass
+          auto prev_pass = reader.pass_names().
+                at(reader.pass_index(test_start_pass)-1);
+
+          reader.executable(bin)
+            .file(file)
+            .wf_check_enabled(wfcheck)
+            .debug_enabled(false)
+            .end_pass(prev_pass);
+          
+          sample_program = reader.read().ast; // Parse file as test program
+        }
+
+        if (!sample_program)
+        {
+          logging::Error() << "Failed to parse test program from " << file
+                           << std::endl;
+          return 1;
+        }
+        // TODO: check wf for sample_program if test suite contains
+        // negative test cases
+        // Add all non-error nodes to sample trees
+        sample_program->traverse([&](auto& n) {
+          if (n != Error)
+            sample_trees[n->type()].push_back(
+              n); // Not cloned until inserted in a tree
+          return true;
+        });
+      }
+      return 0;
+    }
+  
+
+public : Driver(const Reader& reader_, Options* options_ = nullptr)
+: reader(reader_), app(reader_.language_name()), options(options_)
     {}
 
     Driver(
@@ -170,7 +250,7 @@ namespace trieste
         "--samples", sample_files,
         "Files to extract sample nodes from for fuzz testing");
       
-      size_t sampling_level = 0;
+      size_t sampling_level = 1;
       test->add_option(
         "--sampling-level", sampling_level,
         "Level of sampling to use for selecting sample nodes");
@@ -267,79 +347,24 @@ namespace trieste
         // If sample files are given, iterate each file and apply
         // the existing per-file logic. For .trieste files we extract the
         // embedded start-pass; for other files we parse them as test
+        Node sample_program;
         if (std::filesystem::is_directory(sample_files))
         {
-          Node sample_program;
 
           // recursive traversal use std::filesystem::recursive_directory_iterator instead.
           for (auto const& entry : std::filesystem::directory_iterator(sample_files))
           {
             auto file = entry.path();
 
-            // Treat regular files and symlinks as files. Skip directories.
-            if (!std::filesystem::is_regular_file(file) && !std::filesystem::is_symlink(file))
-              continue;
-
-            // Only process files with the expected extensions.
-            auto ext = file.extension().string();
-            auto file_ending = "." + language_name;
-            if (ext != ".trieste" && ext != file_ending)
-              continue;
-
-            if (ext == ".trieste")
-            {
-              auto source = SourceDef::load(file);
-              auto view = source->view();
-              auto pos = std::min(view.find_first_of('\n'), view.size());
-              auto pos2 =
-                std::min(view.find_first_of('\n', pos + 1), view.size());
-              auto pass = view.substr(pos + 1, pos2 - pos - 1);
-
-              if (view.compare(0, pos, reader.language_name()) != 0)
-              {
-                logging::Debug() << "File " << file
-                                 << " does not start with the language name \""
-                                 << reader.language_name() << "\"" << std::endl;
-              }
-
-              test_start_pass =
-                reader.start_pass(pass).offset(pos2 + 1).start_pass();
-            }
-            else
-            {
-              if (reader.pass_index(test_start_pass) == 1)
-                sample_program = reader.parser().parse(file); // Run parser only
-              else 
-              { 
-                // Get the pass prior to the desired start pass
-                auto prev_pass = reader.pass_names().at(reader.pass_index(test_start_pass)-1);
-
-                reader.executable(argv[0])
-                  .file(file)
-                  .wf_check_enabled(wfcheck)
-                  .debug_enabled(false)
-                  .end_pass(prev_pass);
-                // TODO: Fix OBOE Run up to start pass?
-                std::cout << "Running until pass: :" << reader.end_pass() << std::endl;
-                sample_program = reader.read().ast; // Parse file as test program
-              }
-              
-              if (!sample_program)
-              {
-                logging::Error()
-                  << "Failed to parse test program from " << file << std::endl;
-                return 1;
-              }
-              // TODO: check wf for sample_program if test suite contains 
-              // negative test cases 
-              // Add all non-error nodes to sample trees
-              sample_program->traverse([&](auto& n) {
-                if (n != Error)
-                  sample_trees[n->type()].push_back(n); //Not cloned until inserted in a tree 
-                return true;
-              });
-            }
+            ret = process_file(argv[0],file, wfcheck, language_name,
+              test_start_pass, sample_program, sample_trees);
           }
+        }
+        else if (!sample_files.empty())
+        {
+          ret = process_file(argv[0], sample_files, wfcheck, language_name,
+            test_start_pass, sample_program, sample_trees);
+          
         }
         Fuzzer fuzzer =
           Fuzzer(reader)
