@@ -47,7 +47,7 @@ namespace trieste
       return entropy;
     }
 
-    void update_sample_nodes(Pass& pass)
+    void update_sample_nodes(wf::Wellformed wf, Pass& pass)
     {
       auto it = sample_nodes_.find(Top);
       if (it == sample_nodes_.end())
@@ -56,26 +56,37 @@ namespace trieste
       // Make a local copy of the Top sample programs so we can clear and
       // repopulate `sample_nodes_` without mutating the container we're
       // iterating over. 
-      auto sample_progs = it->second;
+      Nodes sample_progs = it->second;
       sample_nodes_.clear();
+      std::vector<Node> errors;
 
       for (auto& node : sample_progs)
       {
-        if (!node)
+        if (!node){
           continue;
-
+        }
         auto [node_updated, cn, ch] = pass->run(node);
 
         if (!node_updated)
           continue;
 
-        // Add the updated top node.
+        // Don't use invalid updated nodes.
+        auto ok = wf.build_st(node_updated);
+        if (!ok || !wf.check(node_updated)){
+          continue;
+        }
+        
+        node_updated->get_errors(errors);
+        if (!errors.empty())
+          continue;
+
+        // Add the updated top node if ok.
         sample_nodes_[Top].push_back(node_updated);
 
         // Repopulate sample nodes for next round from the updated tree.
         node_updated->traverse([&](auto& n) {
           if (n != Error)
-            sample_nodes_[n->type()].push_back(n);
+            sample_nodes_[n->type()].push_back(n->clone());
           return true;
         });
       }
@@ -435,8 +446,6 @@ namespace trieste
              seed++)
         {
           size_t actual_seed = seed;
-
-          // WHATS NEW: Access sample nodes for testing in sample_nodes
           
           auto ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
             sample_nodes_, sampling_level_);
@@ -461,6 +470,9 @@ namespace trieste
 
           auto [new_ast, count, changes] = pass->run(ast);
           auto ok = wf.build_st(new_ast);
+          if (!ok) {
+            logging::Error() << "Failed building symbol table" << std::endl;
+          }
           if (ok)
           {
             Nodes errors;
@@ -509,7 +521,7 @@ namespace trieste
           if (ok && changes == 0) trivial_count++;
         }
 
-        update_sample_nodes(pass); // WHATS NEW: Update sample nodes after running the pass
+        update_sample_nodes(wf, pass); 
 
         logging::Info info;
 
