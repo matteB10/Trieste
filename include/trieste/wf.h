@@ -51,8 +51,6 @@ namespace trieste
       double alpha;
       std::map<Token, std::pair<std::vector<Token>, size_t>> binding_keys;
       bool gen_bound_vars;
-      // std::map<Token, std::vector<Node>> sample_nodes;
-      // bool shallow_sampling;
       Sampling sampling;
 
       /* The generator chooses which token to emit next. It makes this choice
@@ -229,8 +227,8 @@ namespace trieste
         {
           return true; // Not at binding site
         }
-        // If the node we are generating is the binding key of the
-        // parent node, check that it is not the binding key itself
+        // If the node we are generating is the binding key of the parent node,
+        // we should not use a bound name if it is the binding key itself
         auto key_field_index = binding_keys[parent->type()].second;
         auto child_index = parent->size() - 1; // child is already added 
         return key_field_index != child_index || !(parent->type() & flag::shadowing);
@@ -259,6 +257,14 @@ namespace trieste
           auto& samples = sampling.sample_nodes[node->type()];
           size_t choice = rand() % samples.size();
           auto sample = samples[choice];
+
+          // Remove sample if shadowing is not allowed for this type
+          // to avoid conflicting definitions in future samples
+          if (node->type() & flag::shadowing)
+          {
+            sampling.sample_nodes[node->type()].erase(
+              samples.begin() + choice);
+          }
 
           // Copy children from sample
           for (auto& child : *sample)
