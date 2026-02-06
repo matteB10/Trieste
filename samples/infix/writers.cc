@@ -29,9 +29,9 @@ namespace
     return !n.front()->lookup().empty();
   }
 
-  bool can_replace(const NodeRange& n)
+  bool can_replace(const Node& n)
   {
-    auto defs = n.front()->lookup();
+    auto defs = n->lookup();
     if (defs.size() == 0)
     {
       return false;
@@ -136,8 +136,8 @@ namespace
             return Float ^ std::to_string(lhs / rhs);
           },
 
-        T(Expression) << (T(Ref) << T(Ident)[Id])(
-          [](auto& n) { return can_replace(n); }) >>
+        T(Expression) << (T(Ref) << T(Ident)[Id](
+          [](auto& n) { return can_replace(n.front()); })) >>
           [](Match& _) {
             auto defs = _(Id)->lookup();
             auto assign = defs.front();
