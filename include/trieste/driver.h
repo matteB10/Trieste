@@ -24,8 +24,7 @@ namespace trieste
   private:
     int process_file(
       const std::filesystem::path& bin, 
-      const std::filesystem::path& file, 
-      bool wfcheck,
+      const std::filesystem::path& file,
       const std::string& language_name,
       std::string& test_start_pass,
       Node& sample_program,
@@ -35,13 +34,19 @@ namespace trieste
       if (
         !std::filesystem::is_regular_file(file) &&
         !std::filesystem::is_symlink(file))
+      {
+        logging::Debug() << "Unable to read sample file " << file << std::endl;
         return 1;
-
+      }
       // Only process files with the expected extensions.
       auto ext = file.extension().string();
       auto file_ending = "." + language_name;
       if (ext != ".trieste" && ext != file_ending)
+      {
+        logging::Debug() << "Unexpected file ending " << ext << " in file "
+                         << file << std::endl;
         return 1;
+      }
 
       if (ext == ".trieste")
       {
@@ -70,16 +75,23 @@ namespace trieste
         else
         {
           // Get the pass prior to the desired start pass
-          auto prev_pass = reader.pass_names().
-                at(reader.pass_index(test_start_pass)-1);
+          auto prev_pass =
+            reader.pass_names().at(reader.pass_index(test_start_pass) - 1);
 
           reader.executable(bin)
             .file(file)
-            .wf_check_enabled(wfcheck)
+            .wf_check_enabled(true)
             .debug_enabled(false)
             .end_pass(prev_pass);
-          
-          sample_program = reader.read().ast; // Parse file as test program
+
+          auto result = reader.read();
+          if (!result.ok)
+          {
+            logging::Error err;
+            result.print_errors(err);
+            return 1;
+          }
+          sample_program = result.ast; // Parse file as test program
         }
 
         if (!sample_program)
@@ -88,13 +100,9 @@ namespace trieste
                            << std::endl;
           return 1;
         }
-        // TODO: check wf for sample_program if test suite contains
-        // negative test cases
-        // Add all non-error nodes to sample trees
         sample_program->traverse([&](auto& n) {
           if (n != Error)
-            sample_trees[n->type()].push_back(
-              n); // Not cloned until inserted in a tree
+            sample_trees[n->type()].push_back(n); 
           return true;
         });
       }
@@ -195,6 +203,10 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
 
       bool test_failfast = false;
       test->add_flag("-f,--failfast", test_failfast, "Stop on first failure");
+
+      // Test passes in sequence
+      bool test_sequence = false; 
+      test->add_flag("--sequence", test_sequence, "Run all passes on generated tree starting from START");
 
       std::optional<size_t> test_max_retries = std::nullopt;
       test->add_option("-r,--max_retries", test_max_retries,
@@ -322,8 +334,9 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       }
       else if (*test)
       {
-        std::map<Token,std::vector<Node>> sample_trees = {};
-        Node test_program; 
+        std::map<Token, std::vector<Node>> sample_trees = {};
+        bool sampling_enabled;
+        Node test_program;
 
         if (pass_names_no_parse.empty())
         {
@@ -344,28 +357,36 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
           test_end_pass = test_start_pass;
         }
 
-        // If sample files are given, iterate each file and apply
-        // the existing per-file logic. For .trieste files we extract the
-        // embedded start-pass; for other files we parse them as test
         Node sample_program;
+        // If a path to sample files are provided, run all files up to the
+        // starting pass and collect the ast's to use during fuzzing.
         if (std::filesystem::is_directory(sample_files))
         {
-
-          // recursive traversal use std::filesystem::recursive_directory_iterator instead.
-          for (auto const& entry : std::filesystem::directory_iterator(sample_files))
+          for (auto const& entry :
+               std::filesystem::directory_iterator(sample_files))
           {
             auto file = entry.path();
 
-            ret = process_file(argv[0],file, wfcheck, language_name,
-              test_start_pass, sample_program, sample_trees);
+            ret = process_file(
+              argv[0],
+              file,
+              language_name,
+              test_start_pass,
+              sample_program,
+              sample_trees);
           }
         }
         else if (!sample_files.empty())
         {
-          ret = process_file(argv[0], sample_files, wfcheck, language_name,
-            test_start_pass, sample_program, sample_trees);
-          
+          ret = process_file(
+            argv[0],
+            sample_files,
+            language_name,
+            test_start_pass,
+            sample_program,
+            sample_trees);
         }
+        sampling_enabled = !sample_trees.empty();
         Fuzzer fuzzer =
           Fuzzer(reader)
             .max_retries(
@@ -378,11 +399,22 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .start_seed(test_seed)
             .bound_vars(bound_vars)
             .sample_nodes(sample_trees)
-            .sampling_level(sampling_level);
+            .sampling_level(sampling_level)
+            .sampling_enabled(sampling_enabled);
 
-        return *entropy ? fuzzer.debug_entropy() :
-                          fuzzer.test_with_samples();
+        if(*entropy) 
+        { 
+          return fuzzer.debug_entropy();
+        }
+        else if (sampling_enabled)
+        {
+          return fuzzer.test_with_samples();
+        } else
+        {
+          return fuzzer.test();
+        }
       }
+
       else if (*check)
       {
         if (pass_names_no_parse.empty())
