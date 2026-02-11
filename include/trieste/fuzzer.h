@@ -83,13 +83,11 @@ namespace trieste
         if (!errors.empty())
           continue;
 
-        // Add the updated ast if ok.
-        sampled_nodes_[Top].push_back(node_updated);
 
         // Repopulate sample nodes map for next round.
         node_updated->traverse([&](auto& n) {
           if (n != Error)
-            sampled_nodes_[n->type()].push_back(n);
+            sampled_nodes_[n->type()].emplace_back(n);
           return true;
         });
       }
@@ -269,8 +267,8 @@ namespace trieste
       return *this;
     }
 
-    Fuzzer& sample_nodes(std::map<Token,std::vector<Node>> sample_nodes) {
-      sampled_nodes_ = sample_nodes;
+    Fuzzer& sample_nodes(std::map<Token,std::vector<Node>> sampled_nodes) {
+      sampled_nodes_ = sampled_nodes;
       return *this;
     }
 
