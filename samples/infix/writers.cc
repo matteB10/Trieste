@@ -24,9 +24,9 @@ namespace
     ;
   // clang-format on  
 
-  bool exists(const NodeRange& n)
+  bool exists(const Node& n)
   {
-    return !n.front()->lookup().empty();
+    return !n->lookup().empty();
   }
 
   bool can_replace(const Node& n)
@@ -151,8 +151,8 @@ namespace
 
         // errors
 
-        T(Expression) << (T(Ref) << T(Ident)[Id])(
-          [](auto& n) { return !exists(n); }) >>
+        T(Expression) << (T(Ref) << T(Ident)(
+          [](auto& n) { return !exists(n.front()); })) >>
           [](Match&) {
             // NB this case shouldn't happen at all
             // during this pass and as such is not
