@@ -27,6 +27,7 @@ namespace trieste
     bool bound_vars_; // Generate bound variable names
     std::map<Token,std::vector<Node>> sample_nodes_;
     size_t sampling_level_;
+    bool sampling_enabled_;
 
     double calculate_entropy(std::vector<uint8_t>& byte_values) {
       std::map<uint8_t, double> freq;
@@ -80,13 +81,13 @@ namespace trieste
         if (!errors.empty())
           continue;
 
-        // Add the updated top node if ok.
+        // Add the updated ast if ok.
         sample_nodes_[Top].push_back(node_updated);
 
-        // Repopulate sample nodes for next round from the updated tree.
+        // Repopulate sample nodes map for next round.
         node_updated->traverse([&](auto& n) {
           if (n != Error)
-            sample_nodes_[n->type()].push_back(n->clone());
+            sample_nodes_[n->type()].push_back(n);
           return true;
         });
       }
@@ -111,7 +112,8 @@ namespace trieste
       max_retries_(100),
       bound_vars_(true),
       sample_nodes_({}),
-      sampling_level_(0)
+      sampling_level_(0),
+      sampling_enabled_(false)
     {}
 
     Fuzzer(const Reader& reader)
@@ -272,6 +274,11 @@ namespace trieste
 
     Fuzzer& sampling_level(size_t sampling_level) {
       sampling_level_ = sampling_level;
+      return *this;
+    }
+
+    Fuzzer& sampling_enabled(bool sampling_enabled) {
+      sampling_enabled_ = sampling_enabled;
       return *this;
     }
 
@@ -448,13 +455,13 @@ namespace trieste
           size_t actual_seed = seed;
           
           auto ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
-            sample_nodes_, sampling_level_);
+            sample_nodes_, sampling_level_, sampling_enabled_);
 
           size_t hash = ast->hash();
           while (ast_hashes.find(hash) != ast_hashes.end() && retries < max_retries_) {
             actual_seed = retry_seed;
             ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
-              sample_nodes_, sampling_level_);
+              sample_nodes_, sampling_level_, sampling_enabled_);
             hash = ast->hash();
             retry_seed++;
             retries++;
@@ -468,6 +475,7 @@ namespace trieste
                            << "------------" << std::endl
                            << ast << "------------" << std::endl;
 
+          auto name = pass->name();
           auto [new_ast, count, changes] = pass->run(ast);
           auto ok = wf.build_st(new_ast);
           if (!ok) {

@@ -25,20 +25,23 @@ namespace trieste
   namespace wf
   {
     using TokenTerminalDistance = std::map<Token, std::size_t>;
+    // Types of possible keys and their field index
     using SymtabKeys = std::pair<std::vector<Token>, size_t>;
 
 
     struct Sampling{
       std::map<trieste::Token, trieste::Nodes> sample_nodes;
-      size_t sampling_level; // 0: no sampling, 1: node sampling, 2: subtree sampling
+      size_t sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
+      bool sampling_enabled;
 
       Sampling(
         std::map<trieste::Token, trieste::Nodes> sample_nodes_,
-        size_t sampling_level_)
+        size_t sampling_level_,
+        bool sampling_enabled_)
       : sample_nodes(sample_nodes_), 
-        sampling_level(sampling_level_)
+        sampling_level(sampling_level_),
+        sampling_enabled(sampling_enabled_)
       {}
-
 
     };
     struct Gen
@@ -49,7 +52,7 @@ namespace trieste
       size_t target_depth;
       size_t ceiling_depth;
       double alpha;
-      std::map<Token, std::pair<std::vector<Token>, size_t>> binding_keys;
+      std::map<Token, SymtabKeys> binding_keys;
       bool gen_bound_vars;
       Sampling sampling;
 
@@ -76,6 +79,7 @@ namespace trieste
         bool gen_bound_vars_,
         std::map<trieste::Token, trieste::Nodes>& sample_nodes,
         size_t sampling_level,
+        bool sampling_enabled_,
         double alpha_ = 1,
         size_t ceiling_multiplier_ = 2)
       : token_terminal_distance(token_terminal_distance_),
@@ -86,7 +90,7 @@ namespace trieste
         alpha(alpha_),
         binding_keys(binding_keys_),
         gen_bound_vars(gen_bound_vars_),
-        sampling(Sampling(sample_nodes, sampling_level))
+        sampling(Sampling(sample_nodes, sampling_level, sampling_enabled_))
       {
         // Warm up RNG
         for(int i = 0; i < 10; i++)
@@ -185,23 +189,73 @@ namespace trieste
       {
         return rand();
       }
-      
-      private:
-      Nodes get_symbols(Token type, Node scope)
+
+      bool has_sample_nodes(Token t)
+      {
+        return sampling.sample_nodes.find(t) != sampling.sample_nodes.end();
+      }
+
+      size_t sampling_level()
+      {
+        return sampling.sampling_level;
+      }
+
+      size_t sampling_enabled()
+      {
+        return sampling.sampling_enabled;
+      }
+      // Non-const overload to avoid copying when callers have a non-const Gen.
+      std::map<Token, std::vector<Node>>& sample_nodes()
+      {
+        return sampling.sample_nodes;
+      }
+
+    private:
+      // Get all symbols in scope matching the binding type
+      Nodes get_symbols_from_type(Token type, Node st)
       {
         Nodes symbols;
-        if (scope)
+        while (st)
         {
-          // Look up symbols in the current scope that match the binding type
-          scope->get_symbols(symbols, [&](auto& n) {
+          st->get_symbols(symbols, [&](auto& n) {
             auto it = binding_keys.find(n->type());
             return (
               n->type() & flag::lookup &&
-              it != binding_keys.end() && 
+              it != binding_keys.end() &&
               contains_type(it->second.first, type));
           });
+          st = st->scope();
         }
         return symbols;
+      }
+
+      // Get all symbols in scope matching the binding type and location
+      Nodes get_symbols_from_loc(Location loc, Node st)
+      {
+        Nodes symbols;
+        while (st)
+        {
+          st->get_symbols(loc, symbols, [&](auto& n) {
+            return (n->type() & flag::lookup);
+          });
+          st = st->scope();
+        }
+        return symbols;
+      }
+
+      // Checks if child is a symbol table key for the parent type 
+      bool is_symtab_key(size_t child_index, Token child_type, Token parent_type)
+      {
+        if (binding_keys.find(parent_type) == binding_keys.end())
+          return false;
+
+        auto [key_types, key_field_index] = binding_keys[parent_type];
+
+        if (key_types.empty())
+          return false;
+      
+        return key_field_index == child_index &&
+          contains_type(key_types, child_type);
       }
 
       // Returns true if we should generate a bound variable
@@ -217,7 +271,7 @@ namespace trieste
           if (contains_type(binds_to.first, child_type))
             bound_nodes.push_back(parent_type);
         }
-        if (bound_nodes.empty())
+        if (bound_nodes.empty()) //No bound nodes to use 
         {
           return false;
         }
@@ -228,63 +282,114 @@ namespace trieste
           return true; // Not at binding site
         }
         // If the node we are generating is the binding key of the parent node,
-        // we should not use a bound name if it is the binding key itself
+        // we should not use a bound name 
         auto key_field_index = binding_keys[parent->type()].second;
-        auto child_index = parent->size() - 1; // child is already added 
-        return key_field_index != child_index || !(parent->type() & flag::shadowing);
+        auto child_index = parent->size() - 1; 
+        return !(key_field_index == child_index &&
+                  parent->type() & flag::shadowing);
+      }
+
+      bool is_in_scope(Location loc, Node scope)
+      {
+        auto symbols = get_symbols_from_loc(loc, scope);
+        return symbols.size() != 0;
       }
 
       public:
-        Location location(Node parent, Node child)
+        Location fresh_location(Node child)
         {
-          auto type = child->type();
-          Nodes symbols = get_symbols(type, parent->scope());
-
-          // Ensure we don't always use bindings when they exist by adding +1
-          auto rand_symbol = static_cast<size_t>(next() % (symbols.size() + 1));
-          // Prefer location from a symbol table 
-          if (rand_symbol < symbols.size() && should_gen_bound(parent, type))
-          {
-            auto key_index = binding_keys[type].second;
-            return (symbols[rand_symbol]->at(key_index))->location();
-          }
-          // Use fresh location
           return gloc(rand, child);
         }
 
-        void gen_sample(Node& node, size_t sampling_level)
+        // Generate location for child node, preferring to reuse existing 
+        // locations of in-scope symbols of the same type if gen_bound_vars is 
+        // enabled and the child is not a binding key
+        Location gen_location(Node parent, Node child)
         {
-          auto& samples = sampling.sample_nodes[node->type()];
+          auto type = child->type();
+          Nodes symbols = get_symbols_from_type(type, child->scope());
+          // Adding +1 to allow for fresh location with a small probability
+          auto rand_symbol = static_cast<size_t>(next() % (symbols.size() + 1));
+
+          // Prefer location from a symbol table if gen_bound_vars is enabled
+          if (should_gen_bound(parent, type)
+              && rand_symbol < symbols.size())
+          {
+            auto key_index = binding_keys[parent->type()].second;
+            return (symbols[rand_symbol]->at(key_index))->location();
+          }
+          return fresh_location(child);
+        }
+
+        // Clone depth layers of parent node
+        // push all leaves to continuations vector
+        void clone_until(
+          size_t depth,
+          Node parent,
+          Node node,
+          Nodes& continuations,
+          size_t node_index = 0)
+        {
+          Node node_clone = NodeDef::create(node->type());
+          parent->push_back(node_clone);
+          Location location;
+          
+          if (
+            is_symtab_key(node_index, node->type(), parent->type()) &&
+            parent->type() & flag::shadowing &&
+            is_in_scope(node->location(), parent->scope()))
+          {
+            location = fresh_location(node_clone);
+          }
+          else
+          {
+            // Reuse location if not a shadowing symtab key in scope
+            location = node->location();
+          }
+          if (is_symtab_key(node_index, node->type(), parent->type()))
+          {
+            // All nodes that serves as symtab keys should be bound so we can
+            // look them up during generation
+            parent->bind(location);
+          }
+          node_clone->set_location(location);
+
+          if (depth == 0)
+          {
+            continuations.push_back(node_clone);
+          }
+          else
+          {
+            size_t child_index = 0;
+            for (auto& child : *node)
+            {
+              clone_until(
+                depth - 1, node_clone, child, continuations, child_index);
+              child_index++;
+            }
+          }
+        }
+
+        void gen_sample(Node& node, Nodes& continuations)
+        {
+          auto& samples = sample_nodes()[node->type()];
           size_t choice = rand() % samples.size();
           auto sample = samples[choice];
-
-          // Remove sample if shadowing is not allowed for this type
-          // to avoid conflicting definitions in future samples
-          if (node->type() & flag::shadowing)
-          {
-            sampling.sample_nodes[node->type()].erase(
-              samples.begin() + choice);
-          }
+          auto sampling_level = sampling.sampling_level;
 
           // Copy children from sample
           for (auto& child : *sample)
           {
-            auto child_clone = child->clone(); 
-            if (sampling_level == 1) //Sample immediate child, but remove grandchildren
+            if (sampling_level == 0) // Sample full subtree
             {
-              child_clone->erase(child_clone->begin(), child_clone->end()); 
+              //TODO: should bind all symtab keys used here
+              node->push_back(child->clone());
             }
-            node->push_back(child_clone);
+            else // Sample until sampling_level
+            {
+              clone_until(sampling_level, node, child, continuations);
+            }
           }
-          //TODO: Should we use fresh location?
-        }
-
-        std::map<Token, std::vector<Node>> sample_nodes() {
-          return sampling.sample_nodes;
-        }
-
-        size_t sampling_level() {
-          return sampling.sampling_level;
         }
     };
     struct Choice
@@ -305,56 +410,56 @@ namespace trieste
         return std::find(types.begin(), types.end(), type) != types.end();
       }
 
-      bool check(Node node) const
-      {
-        if (node == Error)
-          return true;
+          bool check(Node node) const
+          {
+            if (node == Error)
+              return true;
 
         auto ok = accepts_type(node->type());
 
-        if (!ok)
-        {
-          // Note log will be output on end of scope.
-          logging::Error out{};
+            if (!ok)
+            {
+              // Note log will be output on end of scope.
+              logging::Error out{};
 
-          out << node->location().origin_linecol() << ": unexpected "
-              << node->type().str() << ", expected a ";
+              out << node->location().origin_linecol() << ": unexpected "
+                  << node->type().str() << ", expected a ";
 
-          for (size_t i = 0; i < types.size(); ++i)
-          {
-            out << types[i].str();
+              for (size_t i = 0; i < types.size(); ++i)
+              {
+                out << types[i].str();
 
-            if (i < (types.size() - 2))
-              out << ", ";
-            if (i == (types.size() - 2))
-              out << " or ";
+                if (i < (types.size() - 2))
+                  out << ", ";
+                if (i == (types.size() - 2))
+                  out << " or ";
+              }
+
+              out << std::endl << node->location().str() << node << std::endl;
+            }
+
+            return ok;
           }
 
-          out << std::endl << node->location().str() << node << std::endl;
-        }
+          std::size_t expected_distance_to_terminal(
+            const std::set<Token>& omit,
+            std::size_t max_distance,
+            std::function<std::size_t(Token)> distance) const
+          {
+            return std::accumulate(
+                     types.begin(),
+                     types.end(),
+                     static_cast<std::size_t>(0),
+                     [&](std::size_t acc, auto& type) {
+                       if (omit.find(type) != omit.end())
+                       {
+                         return acc + max_distance;
+                       }
 
-        return ok;
-      }
-
-      std::size_t expected_distance_to_terminal(
-        const std::set<Token>& omit,
-        std::size_t max_distance,
-        std::function<std::size_t(Token)> distance) const
-      {
-        return std::accumulate(
-                 types.begin(),
-                 types.end(),
-                 static_cast<std::size_t>(0),
-                 [&](std::size_t acc, auto& type) {
-                   if (omit.find(type) != omit.end())
-                   {
-                     return acc + max_distance;
-                   }
-
-                   return acc + distance(type);
-                 }) /
-          types.size();
-      }
+                       return acc + distance(type);
+                     }) /
+              types.size();
+          }
 
       void gen(Gen& g, size_t depth, Node node) const
       {
@@ -364,7 +469,7 @@ namespace trieste
         // the time we call g.location().
         auto child = NodeDef::create(type);
         node->push_back(child);
-        child->set_location(g.location(node, child));
+        child->set_location(g.gen_location(node, child));
       }
     };
 
@@ -587,7 +692,9 @@ namespace trieste
         {
           field.choice.gen(g, depth, node);
           if (binding == field.name)
-            node->bind(node->back()->location());
+          {
+            node->bind(node->back()->location()); // Bind to symbol table
+          }
         }
       }
 
@@ -823,12 +930,12 @@ namespace trieste
 
       public:
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
-        std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level) const
+        std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level, bool sampling_enabled) const
       {
         // Collect map of tokens to their binding token and the corresponding
         // index
         std::map<Token, SymtabKeys> binding_keys = {};
-        if (gen_bound)
+        if (gen_bound || sampling_enabled)
           populate_binding_keys(binding_keys);
         
         auto g = Gen(
@@ -839,7 +946,8 @@ namespace trieste
           binding_keys,
           gen_bound, 
           sample_nodes, 
-          sampling_level
+          sampling_level,
+          sampling_enabled
         );
         auto top = NodeDef::create(Top);
         ast::detail::top_node() = top;
@@ -849,7 +957,7 @@ namespace trieste
 
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
       {
-        return gen(gloc, seed, target_depth, gen_bound, {}, 0);
+        return gen(gloc, seed, target_depth, gen_bound, {}, 0, false);
       }
 
       std::size_t min_dist_to_terminal(
@@ -934,27 +1042,33 @@ namespace trieste
         if (find == shapes.end())
           return;
 
-        // We check depth > 0 to not use a single unit test 
-        // If we have sample nodes for this type and sampling is enabled 
-        auto sample_nodes = g.sample_nodes();
-        if (depth > 0 && 
-            g.sampling_level() != 0 && 
-            (sample_nodes.find(node->type()) != sample_nodes.end()) &&
-            g.next() % 2 == 0)
+        // We check depth > 0 to not use a single test program
+        // If we have sample nodes for this type and sampling is enabled
+        Nodes continuations;
+        if (
+          depth > 0 && g.sampling_enabled() &&
+          g.has_sample_nodes(node->type()) 
+          && g.next() % 2 == 0)
         {
-          g.gen_sample(node, g.sampling_level());
+          g.gen_sample(node, continuations);
+          // Continue generating next layer
+          for (auto child : continuations)
+          {
+            gen_node(g, depth + g.sampling_level(), child);
+          }
         }
 
         // Generate based on WF
-        else 
-          std::visit([&](auto& shape) { shape.gen(g, depth, node); }, find->second);
-
-        if (g.sampling_level() > 1) //Subtree sampling, discontinue generation
-          return;
-  
-        // Continue generating next layer        
-        for (auto& child : *node)
-          gen_node(g, depth + 1, child);
+        else
+        {
+          std::visit(
+            [&](auto& shape) { shape.gen(g, depth, node); }, find->second);
+          // Continue generating next layer
+          for (auto& child : *node)
+          {
+            gen_node(g, depth + 1, child);
+          }
+        }
       }
 
       bool build_st(Node& node) const
@@ -987,38 +1101,6 @@ namespace trieste
         });
 
         return ok;
-      }
-
-      // void gen_sample(
-      //   Node tree, std::map<Token, std::vector<Node>> sample_nodes) const
-      // {
-      //   tree->push_back(
-      //     sample_nodes[tree->type()][rand() % sample_nodes[tree->type()].size()]
-      //       ->clone());
-      // }
-
-      Node replace_random_sample(
-        Node tree, std::map<Token, std::vector<Node>> sample_nodes) const
-      {
-        // Replace matching nodes in the tree with a random sample from the
-        // provided sample nodes.
-        tree->traverse([&](Node& n) {
-          if (sample_nodes.find(n->type()) == sample_nodes.end())
-            return true; // No matching nodes, continue traversal
-          {
-            // Randomly decide whether to replace this occurrence. This
-            // allows only some matching nodes to be replaced
-            if ((rand() % 2) == 0)
-            {
-              auto i = rand() % sample_nodes.at(n->type()).size();
-              auto& replacement = sample_nodes.at(n->type())[i];
-              n->parent()->replace(n, replacement->clone());
-              return false;
-            }
-          }
-          return true;
-        });
-        return tree;
       }
     };
 
@@ -1369,7 +1451,8 @@ namespace trieste
         return wf2;
       }
 
-      inline Wellformed operator-(Wellformed&& wf, const Token& token) {
+      inline Wellformed operator-(Wellformed&& wf, const Token& token)
+      {
         wf.shapes.erase(token);
         return std::move(wf);
       }
