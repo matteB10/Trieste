@@ -25,9 +25,11 @@ namespace trieste
     size_t end_index_;
     size_t max_retries_;
     bool bound_vars_; // Generate bound variable names
-    std::map<Token,std::vector<Node>> sample_nodes_;
+    std::map<Token,std::vector<Node>> sampled_nodes_;
     size_t sampling_level_;
     bool sampling_enabled_;
+    // Probability of choosing a sampled node over a generated node
+    size_t sampling_frequency_; 
 
     double calculate_entropy(std::vector<uint8_t>& byte_values) {
       std::map<uint8_t, double> freq;
@@ -50,15 +52,15 @@ namespace trieste
 
     void update_sample_nodes(wf::Wellformed wf, Pass& pass)
     {
-      auto it = sample_nodes_.find(Top);
-      if (it == sample_nodes_.end())
+      auto it = sampled_nodes_.find(Top);
+      if (it == sampled_nodes_.end())
         return;
 
       // Make a local copy of the Top sample programs so we can clear and
-      // repopulate `sample_nodes_` without mutating the container we're
+      // repopulate `sampled_nodes_` without mutating the container we're
       // iterating over. 
       Nodes sample_progs = it->second;
-      sample_nodes_.clear();
+      sampled_nodes_.clear();
       std::vector<Node> errors;
 
       for (auto& node : sample_progs)
@@ -82,12 +84,12 @@ namespace trieste
           continue;
 
         // Add the updated ast if ok.
-        sample_nodes_[Top].push_back(node_updated);
+        sampled_nodes_[Top].push_back(node_updated);
 
         // Repopulate sample nodes map for next round.
         node_updated->traverse([&](auto& n) {
           if (n != Error)
-            sample_nodes_[n->type()].push_back(n);
+            sampled_nodes_[n->type()].push_back(n);
           return true;
         });
       }
@@ -111,7 +113,7 @@ namespace trieste
       end_index_(passes.size()),
       max_retries_(100),
       bound_vars_(true),
-      sample_nodes_({}),
+      sampled_nodes_({}),
       sampling_level_(0),
       sampling_enabled_(false)
     {}
@@ -268,7 +270,7 @@ namespace trieste
     }
 
     Fuzzer& sample_nodes(std::map<Token,std::vector<Node>> sample_nodes) {
-      sample_nodes_ = sample_nodes;
+      sampled_nodes_ = sample_nodes;
       return *this;
     }
 
@@ -279,6 +281,11 @@ namespace trieste
 
     Fuzzer& sampling_enabled(bool sampling_enabled) {
       sampling_enabled_ = sampling_enabled;
+      return *this;
+    }
+
+    Fuzzer& sampling_frequency(size_t sampling_frequency) {
+      sampling_frequency_ = sampling_frequency;
       return *this;
     }
 
@@ -455,13 +462,13 @@ namespace trieste
           size_t actual_seed = seed;
           
           auto ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
-            sample_nodes_, sampling_level_, sampling_enabled_);
+            sampled_nodes_, sampling_level_, sampling_enabled_, sampling_frequency_);
 
           size_t hash = ast->hash();
           while (ast_hashes.find(hash) != ast_hashes.end() && retries < max_retries_) {
             actual_seed = retry_seed;
             ast = prev.gen(generators_, actual_seed, max_depth_, bound_vars_, 
-              sample_nodes_, sampling_level_, sampling_enabled_);
+              sampled_nodes_, sampling_level_, sampling_enabled_, sampling_frequency_);
             hash = ast->hash();
             retry_seed++;
             retries++;

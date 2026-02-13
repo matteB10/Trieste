@@ -267,6 +267,13 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
         "--sampling-level", sampling_level,
         "Level of sampling to use for selecting sample nodes");
 
+      size_t sampling_frequency = 50; // Default to 50% sampling frequency
+      test->add_option(
+        "--sampling-frequency",
+        sampling_frequency,
+        "Frequency of using sampled nodes over randomly generated nodes during "
+        "testing (0-100)");
+
       try
       {
         app.parse(argc, argv);
@@ -400,7 +407,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .bound_vars(bound_vars)
             .sample_nodes(sample_trees)
             .sampling_level(sampling_level)
-            .sampling_enabled(sampling_enabled);
+            .sampling_enabled(sampling_enabled)
+            .sampling_frequency(sampling_frequency);
 
         if(*entropy) 
         { 

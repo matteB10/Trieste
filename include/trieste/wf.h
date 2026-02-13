@@ -33,16 +33,19 @@ namespace trieste
       std::map<trieste::Token, trieste::Nodes> sample_nodes;
       size_t sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
       bool sampling_enabled;
+      size_t sampling_frequency;
 
       Sampling(
         std::map<trieste::Token, trieste::Nodes> sample_nodes_,
         size_t sampling_level_,
-        bool sampling_enabled_)
-      : sample_nodes(sample_nodes_), 
+        bool sampling_enabled_,
+        size_t sampling_frequency_)
+      : sample_nodes(sample_nodes_),
         sampling_level(sampling_level_),
-        sampling_enabled(sampling_enabled_)
+        sampling_enabled(sampling_enabled_),
+        sampling_frequency(
+          sampling_frequency_ > 0 ? std::floor(100.0 / sampling_frequency_) : 1)
       {}
-
     };
     struct Gen
     {
@@ -80,6 +83,7 @@ namespace trieste
         std::map<trieste::Token, trieste::Nodes>& sample_nodes,
         size_t sampling_level,
         bool sampling_enabled_,
+        size_t sampling_frequency_,
         double alpha_ = 1,
         size_t ceiling_multiplier_ = 2)
       : token_terminal_distance(token_terminal_distance_),
@@ -90,7 +94,8 @@ namespace trieste
         alpha(alpha_),
         binding_keys(binding_keys_),
         gen_bound_vars(gen_bound_vars_),
-        sampling(Sampling(sample_nodes, sampling_level, sampling_enabled_))
+        sampling(Sampling(
+          sample_nodes, sampling_level, sampling_enabled_, sampling_frequency_))
       {
         // Warm up RNG
         for(int i = 0; i < 10; i++)
@@ -208,6 +213,9 @@ namespace trieste
       std::map<Token, std::vector<Node>>& sample_nodes()
       {
         return sampling.sample_nodes;
+      }
+      size_t use_sample(){
+        return next() % sampling.sampling_frequency == 0;
       }
 
     private:
@@ -934,7 +942,7 @@ namespace trieste
       public:
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
         std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level,
-        bool sampling_enabled) const
+        bool sampling_enabled, size_t sampling_frequency) const
       {
         // Collect map of tokens to their binding token and the corresponding
         // index in the children vector. This is used to preferentially generate 
@@ -954,7 +962,8 @@ namespace trieste
           gen_bound, 
           sample_nodes, 
           sampling_level,
-          sampling_enabled
+          sampling_enabled,
+          sampling_frequency
         );
         auto top = NodeDef::create(Top);
         ast::detail::top_node() = top;
@@ -964,7 +973,7 @@ namespace trieste
 
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
       {
-        return gen(gloc, seed, target_depth, gen_bound, {}, 0, false);
+        return gen(gloc, seed, target_depth, gen_bound, {}, 0, false, 0);
       }
 
 
@@ -1056,7 +1065,7 @@ namespace trieste
         if (
           depth > 0 && g.sampling_enabled() &&
           g.has_sample_nodes(node->type()) 
-          && g.next() % 2 == 0)
+          && g.use_sample())
         {
           g.gen_sample(node, continuations);
           // Continue generating next layer
