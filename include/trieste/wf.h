@@ -324,74 +324,75 @@ namespace trieste
         return fresh_location(child);
       }
 
-        // Clone depth layers of parent node
-        // push all leaves to continuations vector
-        void clone_until(
-          size_t depth,
-          Node parent,
-          Node node,
-          Nodes& continuations)
-        {
-          Node node_clone = NodeDef::create(node->type());
-          parent->push_back(node_clone);
-          auto node_index = parent->size() - 1;
-          Location location;
-          
-          if (
-            is_symtab_key(node_index, node->type(), parent->type()) &&
-            parent->type() & flag::shadowing &&
-            is_in_scope(node->location(), parent->scope()))
-          {
-            location = fresh_location(node_clone);
-          }
-          else
-          {
-            // Reuse location if not a shadowing symtab key in scope
-            location = node->location();
-          }
-          if (is_symtab_key(node_index, node->type(), parent->type()))
-          {
-            // All nodes that serves as symtab keys should be bound so we can
-            // look them up during generation
-            parent->bind(location);
-          }
-          node_clone->set_location(location);
+      // Clone node without children,
+      // giving it a fresh location if it's a symtab key where shadowing is
+      // disallowed and the symbol is already in scope.
+      Node non_shadow_clone(Node parent, Node node)
+      {
+        Node node_clone = NodeDef::create(node->type());
+        parent->push_back(node_clone);
+        auto node_index = parent->size() - 1;
+        Location location;
 
-          if (depth == 0)
+        if (
+          is_symtab_key(node_index, node->type(), parent->type()) &&
+          parent->type() & flag::shadowing &&
+          is_in_scope(node->location(), parent->scope()))
+        {
+          location = fresh_location(node_clone);
+        }
+        else
+        {
+          // Reuse location if not a shadowing symtab key in scope
+          location = node->location();
+        }
+        if (is_symtab_key(node_index, node->type(), parent->type()))
+        {
+          // All nodes that serves as symtab keys should be bound so we can
+          // look them up during generation
+          parent->bind(location);
+        }
+        node_clone->set_location(location);
+        return node_clone;
+      }
+
+      // Clone depth layers of parent tree
+      // push all incomplete subtrees to continuations vector
+      void
+      clone_depth(size_t depth, Node parent, Node node, Nodes& continuations)
+      {
+        Node node_clone = non_shadow_clone(parent, node);
+
+        if (depth == 0)
+        {
+          continuations.push_back(node_clone);
+        }
+        else
+        {
+          for (auto& child : *node)
           {
-            continuations.push_back(node_clone);
-          }
-          else
-          {
-            for (auto& child : *node)
-            {
-              clone_until(
-                depth - 1, node_clone, child, continuations);
-            }
+            clone_depth(depth - 1, node_clone, child, continuations);
           }
         }
+      }
 
-        void gen_sample(Node& node, Nodes& continuations)
+      void gen_sample(Node& node, Nodes& continuations)
+      {
+        auto& samples = sample_nodes()[node->type()];
+        size_t choice = rand() % samples.size();
+        auto sample = samples[choice];
+        auto sampling_level = sampling.sampling_level;
+
+        // Copy children from sample
+        for (auto& child : *sample)
         {
-          auto& samples = sample_nodes()[node->type()];
-          size_t choice = rand() % samples.size();
-          auto sample = samples[choice];
-          auto sampling_level = sampling.sampling_level;
-
-          // Copy children from sample
-          for (auto& child : *sample)
-          {
-            if (sampling_level == 0) // Sample full subtree
-            {
-              //TODO: should bind all symtab keys used here
-              node->push_back(child->clone());
-            }
-            else // Sample until sampling_level
-            {
-              clone_until(sampling_level, node, child, continuations);
-            }
-          }
+          if (sampling_level == 0)
+          // Clone entire subtree
+            clone_depth(-1, node, child, continuations);
+          else
+            clone_depth(sampling_level, node, child, continuations);
         }
+      }
     };
     struct Choice
     {
