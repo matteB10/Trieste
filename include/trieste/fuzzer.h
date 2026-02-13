@@ -468,6 +468,7 @@ namespace trieste
           }
 
           ast_hashes.insert(hash);
+          auto ast_copy = ast->clone(); //Save clone before running pass
 
           logging::Trace() << "============" << std::endl
                            << "Pass: " << pass->name() << ", seed: " << actual_seed
@@ -510,7 +511,7 @@ namespace trieste
               err << "============" << std::endl
                   << "Pass: " << pass->name() << ", seed: " << actual_seed << std::endl
                   << "------------" << std::endl
-                  << prev.gen(generators_, actual_seed, max_depth_, bound_vars_) << "------------"
+                  << ast_copy << "------------"
                   << std::endl
                   << new_ast;
             }
