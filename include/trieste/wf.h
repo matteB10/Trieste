@@ -243,17 +243,19 @@ namespace trieste
         return symbols;
       }
 
-      // Checks if child is a symbol table key for the parent type 
+      // Checks if child is a symbol table key for the parent type
       bool is_symtab_key(size_t child_index, Token child_type, Token parent_type)
       {
-        if (binding_keys.find(parent_type) == binding_keys.end())
+        auto it = binding_keys.find(parent_type);
+        if (it == binding_keys.end())
           return false;
 
-        auto [key_types, key_field_index] = binding_keys[parent_type];
+        std::vector<Token> key_types = it->second.first;
+        auto key_field_index = it->second.second;
 
         if (key_types.empty())
           return false;
-      
+
         return key_field_index == child_index &&
           contains_type(key_types, child_type);
       }
@@ -282,11 +284,11 @@ namespace trieste
           return true; // Not at binding site
         }
         // If the node we are generating is the binding key of the parent node,
-        // we should not use a bound name 
-        auto key_field_index = binding_keys[parent->type()].second;
-        auto child_index = parent->size() - 1; 
-        return !(key_field_index == child_index &&
-                  parent->type() & flag::shadowing);
+        // we should not use a bound name
+        auto child_index = parent->size() - 1;
+        return !(
+          is_symtab_key(child_index, child_type, parent->type()) &&
+          parent->type() & flag::shadowing);
       }
 
       bool is_in_scope(Location loc, Node scope)
@@ -295,31 +297,32 @@ namespace trieste
         return symbols.size() != 0;
       }
 
-      public:
-        Location fresh_location(Node child)
-        {
-          return gloc(rand, child);
-        }
+    public:
+      Location fresh_location(Node child)
+      {
+        return gloc(rand, child);
+      }
 
-        // Generate location for child node, preferring to reuse existing 
-        // locations of in-scope symbols of the same type if gen_bound_vars is 
-        // enabled and the child is not a binding key
-        Location gen_location(Node parent, Node child)
+      // Generate location for child node, preferring to reuse existing
+      // locations of in-scope symbols of the same type if gen_bound_vars is
+      // enabled and the child is not a binding key
+      Location gen_location(Node parent, Node child)
+      {
+        auto type = child->type();
+        Nodes symbols = get_symbols_from_type(type, child->scope());
+        // Adding +1 to allow for fresh location with a small probability
+        auto rand_symbol = static_cast<size_t>(next() % (symbols.size() + 1));
+        auto it = binding_keys.find(parent->type());
+        // Prefer location from a symbol table if gen_bound_vars is enabled
+        if (
+          rand_symbol < symbols.size() && should_gen_bound(parent, type) &&
+          it != binding_keys.end())
         {
-          auto type = child->type();
-          Nodes symbols = get_symbols_from_type(type, child->scope());
-          // Adding +1 to allow for fresh location with a small probability
-          auto rand_symbol = static_cast<size_t>(next() % (symbols.size() + 1));
-
-          // Prefer location from a symbol table if gen_bound_vars is enabled
-          if (should_gen_bound(parent, type)
-              && rand_symbol < symbols.size())
-          {
-            auto key_index = binding_keys[parent->type()].second;
-            return (symbols[rand_symbol]->at(key_index))->location();
-          }
-          return fresh_location(child);
+          auto key_index = it->second.second;
+          return (symbols[rand_symbol]->at(key_index))->location();
         }
+        return fresh_location(child);
+      }
 
         // Clone depth layers of parent node
         // push all leaves to continuations vector
@@ -327,11 +330,11 @@ namespace trieste
           size_t depth,
           Node parent,
           Node node,
-          Nodes& continuations,
-          size_t node_index = 0)
+          Nodes& continuations)
         {
           Node node_clone = NodeDef::create(node->type());
           parent->push_back(node_clone);
+          auto node_index = parent->size() - 1;
           Location location;
           
           if (
@@ -360,12 +363,10 @@ namespace trieste
           }
           else
           {
-            size_t child_index = 0;
             for (auto& child : *node)
             {
               clone_until(
-                depth - 1, node_clone, child, continuations, child_index);
-              child_index++;
+                depth - 1, node_clone, child, continuations);
             }
           }
         }
@@ -903,8 +904,7 @@ namespace trieste
         return ok;
       }
 
-    private:
-      void populate_binding_keys(std::map<Token, SymtabKeys>& binding_keys) const
+      void populate_binding_keys(std::map<trieste::Token, SymtabKeys>& binding_keys) const
       {
         for (const auto& [t, s] : shapes)
         {
@@ -917,10 +917,11 @@ namespace trieste
                 if (shape.binding != Invalid)
                 {
                   auto key_index = shape.index(shape.binding);
-                  binding_keys.emplace(
-                    tok,
-                    std::make_pair(
-                      shape.fields.at(key_index).choice.types, key_index));
+                  auto& types = shape.fields.at(key_index).choice.types;
+                  if (!types.empty())
+                  {
+                    binding_keys.emplace(tok, std::make_pair(types, key_index));
+                  }
                 }
               }
             },
@@ -928,16 +929,21 @@ namespace trieste
         }
       }
 
+
       public:
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
-        std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level, bool sampling_enabled) const
+        std::map<trieste::Token, trieste::Nodes> sample_nodes, size_t sampling_level,
+        bool sampling_enabled) const
       {
         // Collect map of tokens to their binding token and the corresponding
-        // index
-        std::map<Token, SymtabKeys> binding_keys = {};
+        // index in the children vector. This is used to preferentially generate 
+        //bound variables that are in scope.
+        auto binding_keys = std::map<trieste::Token, SymtabKeys>{};
         if (gen_bound || sampling_enabled)
+        {
           populate_binding_keys(binding_keys);
-        
+        }
+
         auto g = Gen(
           compute_minimum_distance_to_terminal(target_depth),
           gloc,
@@ -959,6 +965,7 @@ namespace trieste
       {
         return gen(gloc, seed, target_depth, gen_bound, {}, 0, false);
       }
+
 
       std::size_t min_dist_to_terminal(
         TokenTerminalDistance& distance,
