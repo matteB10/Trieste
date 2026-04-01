@@ -527,11 +527,11 @@ namespace trieste
       end_index_(passes.size()),
       max_retries_(100),
       bound_vars_(true),
-      test_sequence_(false),
-      size_stats_(false),
       sampled_nodes_({}),
       sampling_level_(0),
-      sampling_enabled_(false)
+      sampling_enabled_(false),
+      test_sequence_(false),
+      size_stats_(false)
     {}
 
     Fuzzer(const Reader& reader)
