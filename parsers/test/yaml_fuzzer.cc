@@ -274,23 +274,15 @@ int main(int argc, char** argv)
   bool sampling_enabled = !sample_trees.empty();
   std::cout << "Extracted " << sample_trees.size() << " sample nodes for fuzz testing" << std::endl;
 
-  fuzzer.start_seed(seed)
+  return fuzzer.start_seed(seed)
     .seed_count(count)
     .failfast(failfast)
     .max_retries(count * 2)
     .test_sequence(sequence)
-    .bound_vars(bound_vars);
-
-  if (sampling_enabled)
-  {
-    return fuzzer.sampling_level(sampling_level)
+    .bound_vars(bound_vars)
+    .sampling_level(sampling_level)
     .sampling_enabled(sampling_enabled)
     .sampling_frequency(sampling_frequency)
     .sample_nodes(sample_trees)
-    .test_with_samples();
-  }
-  else
-  {
-    return fuzzer.test();
-  }
+    .test();
 }

@@ -246,5 +246,5 @@ int main(int argc, char** argv)
     .sampling_frequency(sampling_frequency)
     .sampling_level(sampling_level)
     .bound_vars(bound_vars)
-    .test_with_samples();
+    .test();
 }
