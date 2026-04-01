@@ -99,6 +99,7 @@ void pop_samples(
   // Configure fuzzer with sampling options
   Node sample_program;
   std::filesystem::path bin_path;
+  int ret = 0;
 
   try
   {
@@ -120,7 +121,7 @@ void pop_samples(
       {
         if (entry.is_regular_file())
         {
-          process_file(
+          ret = process_file(
             bin_path,
             entry.path(),
             reader,
@@ -133,7 +134,7 @@ void pop_samples(
     else
     {
       // Process single file
-      process_file(
+      ret = process_file(
         bin_path,
         sample_files,
         reader,
@@ -141,6 +142,16 @@ void pop_samples(
         sample_program,
         sample_trees);
     }
+    if (ret)
+    {
+      logging::Debug() << "Error processing sample files" << std::endl;
+      exit(ret);
+    }
+  }
+  else
+  {
+    logging::Debug() << "No sample files provided or file does not exist at "
+                     << sample_files << std::endl;
   }
 }
 
@@ -266,6 +277,8 @@ int main(int argc, char** argv)
   fuzzer.start_seed(seed)
     .seed_count(count)
     .failfast(failfast)
+    .max_retries(count * 2)
+    .test_sequence(sequence)
     .bound_vars(bound_vars);
 
   if (sampling_enabled)
