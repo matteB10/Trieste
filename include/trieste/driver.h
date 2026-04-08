@@ -432,6 +432,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .end_index(reader.pass_index(test_end_pass))
             .start_seed(test_seed)
             .bound_vars(bound_vars)
+            .test_sequence(test_sequence)
+            .size_stats(test_size_stats)
             .sample_nodes(sample_trees)
             .sampling_level(sampling_level)
             .sampling_enabled(sampling_enabled)
@@ -441,10 +443,7 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
         { 
           return fuzzer.debug_entropy();
         }
-        else if (sampling_enabled)
-        {
-          return fuzzer.test_with_samples();
-        } else
+        else
         {
           return fuzzer.test();
         }
