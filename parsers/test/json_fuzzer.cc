@@ -51,7 +51,6 @@ int process_file(
   else
   {
     end_pass = parse_only ? "parse" : reader.passes().front()->name();
-    std::cout << "Testing until pass " << end_pass << std::endl;
     reader.executable(bin)
       .file(file)
       .wf_check_enabled(true)
@@ -59,8 +58,8 @@ int process_file(
       .end_pass(end_pass);
 
     auto result = reader.read();
-    std::cout << "Finished processing file " << file
-              << " with result: " << (result.ok ? "OK" : "FAIL") << std::endl;
+    logging::Debug() << "Finished building samples from file " << file
+                     << std::endl;
 
     if (!result.ok)
     {
@@ -187,7 +186,7 @@ int main(int argc, char** argv)
     ->check(logging::set_log_level_from_string);
 
   std::filesystem::path sample_files;
-  app.add_option(
+  auto* samples_option = app.add_option(
     "--samples",
     sample_files,
     "Files to extract sample nodes from for fuzz testing");
@@ -229,7 +228,12 @@ int main(int argc, char** argv)
   {
     fuzzer = Fuzzer(reader);
     parse_only = true; // Only test parsing for reader transform
-    populate_samples(reader, argv, parse_only, sample_trees, sample_files);
+    if (samples_option->count() > 0)
+    {
+      populate_samples(reader, argv, parse_only, sample_trees, sample_files);
+      logging::Info() << "Extracted " << sample_trees.size()
+                     << " sample nodes for fuzz testing" << std::endl;                     
+    }
   }
   else
   {

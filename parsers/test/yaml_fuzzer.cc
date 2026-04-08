@@ -53,8 +53,7 @@ int process_file(
   }
   else
   {
-    end_pass = parse_only ? "parse" : reader.passes().front()->name();
-    std::cout << "Testing until pass " << end_pass << std::endl;
+    end_pass = parse_only ? "parse" : reader.passes().back()->name();
     reader.executable(bin)
       .file(file)
       .wf_check_enabled(true)
@@ -62,8 +61,8 @@ int process_file(
       .end_pass(end_pass);
 
     auto result = reader.read();
-    std::cout << "Finished processing file " << file << " with result: "
-              << (result.ok ? "OK" : "FAIL") << std::endl;
+    logging::Debug() << "Finished building samples from file " << file
+                     << std::endl;
 
     if (!result.ok)
     {
@@ -76,7 +75,7 @@ int process_file(
 
   if (!sample_program)
   {
-    logging::Error() << "Failed to parse test program from " << file
+    logging::Debug() << "Failed to parse test program from " << file
                      << std::endl;
     return 1;
   }
@@ -144,14 +143,15 @@ void populate_samples(
     }
     if (ret)
     {
-      logging::Debug() << "Error processing sample files" << std::endl;
-      exit(ret);
+      logging::Output() << "All files in " << sample_files
+                        << " could not be processed" << std::endl;
+
     }
   }
   else
   {
-    logging::Debug() << "No sample files provided or file does not exist at "
-                     << sample_files << std::endl;
+    logging::Output() << "No sample files provided or file " << sample_files
+                      << " does not exist" << std::endl;
   }
 }
 
@@ -193,7 +193,7 @@ int main(int argc, char** argv)
 
   // Sampling options
   std::filesystem::path sample_files;
-  app.add_option(
+  auto* samples_option =app.add_option(
     "--samples",
     sample_files,
     "Files to extract sample nodes from for fuzz testing");
@@ -258,24 +258,15 @@ int main(int argc, char** argv)
   else if (transform == "reader_to_json")
   {
     fuzzer = Fuzzer(reader_tojson);
-      std::cout << "Running reader + tojson, all passes:\n";
-
-      for (const auto& pass : reader_tojson.passes())
-      {
-        std::cout << " - " << pass->name() << "\n";
-      }
-      std::cout << "end of passes." << std::endl;
     parse_only = true;
-    std::cout << "Extracting sample nodes for reader + to_json transform"
-              << std::endl;
     populate_samples(reader_tojson, argv, parse_only, sample_trees, sample_files);
   }
 
   bool sampling_enabled = !sample_trees.empty();
-  if (sampling_enabled)
+  if (samples_option->count() > 0)
   {
-    std::cout << "Extracted " << sample_trees.size()
-              << " sample nodes for fuzz testing" << std::endl;
+    logging::Info() << "Extracted " << sample_trees.size()
+                     << " sample nodes for fuzz testing" << std::endl;
   }
 
   return fuzzer.start_seed(seed)
