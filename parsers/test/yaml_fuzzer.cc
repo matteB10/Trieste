@@ -89,7 +89,7 @@ int process_file(
   return 0;
 }
 
-void pop_samples(
+void populate_samples(
   Reader& reader,
   char** argv,
   bool parse_only,
@@ -164,8 +164,6 @@ int main(int argc, char** argv)
   std::string transform;
   app.add_option("transform", transform, "Transform to test")
     ->check(
-      CLI::IsMember({"reader", "writer", "event_writer", "to_json", "all"}))
-    ->check(
       CLI::IsMember(
         {"reader", "writer", "event_writer", "to_json", "reader_to_json"}))
     ->required(true);
@@ -237,42 +235,48 @@ int main(int argc, char** argv)
   if (transform == "reader")
   {
     fuzzer = Fuzzer(reader);
-    parse_only = true; // Only test parsing for reader transform
-    pop_samples(reader, argv, parse_only, sample_trees, sample_files); 
+    parse_only = true; // Only run parser for reader
+    populate_samples(reader, argv, parse_only, sample_trees, sample_files); 
   }
   else if (transform == "writer")
   {
     auto writer = yaml::writer("fuzzer");
     fuzzer = Fuzzer(writer, reader.parser().generators());
-    pop_samples(reader, argv, parse_only, sample_trees, sample_files);
+    populate_samples(reader, argv, parse_only, sample_trees, sample_files);
   }
   else if (transform == "event_writer")
   {
     auto event_writer = yaml::event_writer("fuzzer");
     fuzzer = Fuzzer(event_writer, reader.parser().generators());
-    pop_samples(reader, argv, parse_only, sample_trees, sample_files); 
+    populate_samples(reader, argv, parse_only, sample_trees, sample_files); 
   }
-   else if (transform == "reader_to_json")
+  else if (transform == "to_json")
+  {
+    fuzzer = Fuzzer(yaml::to_json(), reader.parser().generators());
+    populate_samples(reader, argv, parse_only, sample_trees, sample_files); 
+  }
+  else if (transform == "reader_to_json")
   {
     fuzzer = Fuzzer(reader_tojson);
-    if (transform == "reader_to_json")
-    {
-      std::cout << "Running fuzzer with samples" << std::endl;
       std::cout << "Running reader + tojson, all passes:\n";
-      
-      for (const auto& pass : reader_tojson.passes()) {
+
+      for (const auto& pass : reader_tojson.passes())
+      {
         std::cout << " - " << pass->name() << "\n";
       }
       std::cout << "end of passes." << std::endl;
-    }
-    parse_only = true; 
-    std::cout << "Extracting sample nodes for reader + to_json transform" << std::endl;
-    pop_samples(reader_tojson, argv, parse_only, sample_trees, sample_files); 
+    parse_only = true;
+    std::cout << "Extracting sample nodes for reader + to_json transform"
+              << std::endl;
+    populate_samples(reader_tojson, argv, parse_only, sample_trees, sample_files);
   }
 
-  
   bool sampling_enabled = !sample_trees.empty();
-  std::cout << "Extracted " << sample_trees.size() << " sample nodes for fuzz testing" << std::endl;
+  if (sampling_enabled)
+  {
+    std::cout << "Extracted " << sample_trees.size()
+              << " sample nodes for fuzz testing" << std::endl;
+  }
 
   return fuzzer.start_seed(seed)
     .seed_count(count)

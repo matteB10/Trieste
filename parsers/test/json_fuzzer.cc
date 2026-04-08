@@ -86,7 +86,7 @@ int process_file(
   return 0;
 }
 
-void pop_samples(
+void populate_samples(
   Reader& reader,
   char** argv,
   bool parse_only,
@@ -229,7 +229,7 @@ int main(int argc, char** argv)
   {
     fuzzer = Fuzzer(reader);
     parse_only = true; // Only test parsing for reader transform
-    pop_samples(reader, argv, parse_only, sample_trees, sample_files);
+    populate_samples(reader, argv, parse_only, sample_trees, sample_files);
   }
   else
   {
