@@ -216,15 +216,29 @@ namespace trieste
     /// @return The generated AST node.
     Node gen_ast(const wf::Wellformed& wf, SeedContext& context)
     {
-      auto ast =
-        wf.gen(generators_, context.current_seed, max_depth_, bound_vars_);
+      auto ast = wf.gen(
+        generators_,
+        context.current_seed,
+        max_depth_,
+        bound_vars_,
+        sampled_nodes_,
+        sampling_level_,
+        sampling_enabled_,
+        sampling_frequency_);
       size_t hash = ast->hash();
       while (context.ast_hashes.find(hash) != context.ast_hashes.end() &&
              context.retries < max_retries_)
       {
         context.current_seed = context.retry_seed++;
-        ast =
-          wf.gen(generators_, context.current_seed, max_depth_, bound_vars_);
+        ast = wf.gen(
+          generators_,
+          context.current_seed,
+          max_depth_,
+          bound_vars_,
+          sampled_nodes_,
+          sampling_level_,
+          sampling_enabled_,
+          sampling_frequency_);
         hash = ast->hash();
         context.retries++;
       }
