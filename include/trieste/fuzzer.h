@@ -337,6 +337,7 @@ namespace trieste
                          << ast << "------------" << std::endl;
 
         auto old_changes = pass_stats.change_count;
+        auto old_ast = ast->clone();
         auto [new_ast, result] = run_pass(ast, pass, pass->wf(), pass_stats);
 
         logging::Trace() << new_ast << "------------" << std::endl << std::endl;
@@ -347,16 +348,12 @@ namespace trieste
           if (!logging::Trace::active())
           {
             // We haven't printed what failed with Trace earlier, so do it
-            // now. Regenerate the start Ast for the error message.
+            // now. 
             err << "============" << std::endl
                 << "Pass: " << pass->name()
                 << ", seed: " << seed_context.current_seed << std::endl
                 << "------------" << std::endl
-                << prev.gen(
-                     generators_,
-                     seed_context.current_seed,
-                     max_depth_,
-                     bound_vars_)
+                << old_ast
                 << "------------" << std::endl
                 << new_ast;
           }

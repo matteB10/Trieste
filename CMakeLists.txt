@@ -65,9 +65,11 @@ configure_file(
 option(TRIESTE_ENABLE_TESTING "Specifies whether to enable Trieste's tests" OFF)
 option(TRIESTE_BUILD_SAMPLES "Specifies whether to build the samples" ON)
 option(TRIESTE_BUILD_PARSERS "Specifies whether to build the parsers" ON)
-option(TRIESTE_BUILD_PARSER_TESTS "Specifies whether to build the parser tests" OFF)
-option(TRIESTE_BUILD_PARSER_TOOLS "Specifies whether to build parser tools" OFF)
+option(TRIESTE_BUILD_PARSER_TESTS "Specifies whether to build the parser tests" ON)
+option(TRIESTE_BUILD_PARSER_TOOLS "Specifies whether to build parser tools" ON)
 option(TRIESTE_BUILD_REGEX_BENCHMARK "Build regex engine benchmark against RE2 (opt-in; fetches RE2)" OFF)
+option(TRIESTE_BUILD_PARSER_TESTS "Specifies whether to build the parser tests" ON)
+option(TRIESTE_BUILD_PARSER_TOOLS "Specifies whether to build parser tools" ON)
 option(TRIESTE_USE_CXX17 "Specifies whether to target the C++17 standard" OFF)
 option(TRIESTE_CLEAN_INSTALL "Specifies whether to delete all files (recursively) from the install prefix before install" OFF)
 option(TRIESTE_USE_SNMALLOC "Specifies that new/delete should be overridden with snmalloc" ON)
@@ -82,6 +84,15 @@ endif()
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
 include(GNUInstallDirs)
+option(CODE_COVERAGE "Enable coverage reporting" ON)
+
+if(CODE_COVERAGE)
+   message(STATUS "Code coverage enabled")
+   set(COVERAGE_FLAGS "-fprofile-instr-generate -fcoverage-mapping -O0 -g")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COVERAGE_FLAGS}")
+   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COVERAGE_FLAGS}")
+   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${COVERAGE_FLAGS}")
+endif()
 
 # #############################################
 # Dependencies
