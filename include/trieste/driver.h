@@ -148,6 +148,23 @@ namespace trieste
       test->add_option(
         "--gen_bound", bound_vars, "Generate bound variable names if possible");
 
+      // Option for differential testing of fuzzing passes
+      // path to alternative binary
+      std::filesystem::path alt_bin;
+      test->add_option(
+        "--diff",
+        alt_bin,
+        "Perform differential testing of passes using the alternate binary");
+
+      // Internal option for differential testing of fuzzing passes
+      // generate trees and dump them to stdout
+      bool oracle = false;
+      test->add_option(
+        "--oracle",
+        oracle,
+        "Generate trees and dump them to stdout for differential testing")
+        ->group("");
+
       // Subcommand to test entropy of random number generation.
       auto entropy = test->add_subcommand(
         "debug_entropy",
@@ -262,8 +279,11 @@ namespace trieste
           return 1;
         }
 
-        logging::Output() << "Testing x" << test_seed_count
-                          << ", seed: " << test_seed << std::endl;
+        if (!oracle)
+        {
+          logging::Output() << "Testing x" << test_seed_count
+                            << ", seed: " << test_seed << std::endl;
+        }
 
         if (test_start_pass.empty())
         {
@@ -290,7 +310,9 @@ namespace trieste
             .start_seed(test_seed)
             .bound_vars(bound_vars)
             .test_sequence(test_sequence)
-            .size_stats(test_size_stats);
+            .size_stats(test_size_stats)
+            .diff(alt_bin)
+            .oracle(oracle);
 
         if (*entropy)
         {

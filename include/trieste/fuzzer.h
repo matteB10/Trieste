@@ -25,6 +25,10 @@ namespace trieste
     bool bound_vars_;
     bool test_sequence_;
     bool size_stats_;
+    std::filesystem::path alt_bin_;
+    bool diff_test;
+    bool oracle_;
+    bool diff_failed_;
 
     struct SeedContext
     {
@@ -306,9 +310,27 @@ namespace trieste
       for (size_t seed = start_seed_; seed < start_seed_ + seed_count_; seed++)
       {
         seed_context.current_seed = seed;
+        Node ast;
+        Node expected_ast;
+        int wf_result;
 
-        auto ast = gen_ast(prev, seed_context);
-
+        if (diff_test && !oracle_)
+        {
+          auto out_file = run_oracle(alt_bin_, pass, seed_context.current_seed);
+          [ast, expected_ast, wf_result] = parse_output(out_file);
+        }
+        else 
+        {
+          ast = gen_ast(prev, seed_context);
+        }
+        if (oracle_)
+        {
+          // Write AST to file/stdout 
+          // or other info 
+          std::cout << ast << std::endl;
+          std::cout << expected_ast << std::endl;
+          std::cout << wf_result << std::endl;
+        }
         logging::Trace() << "============" << std::endl
                          << "Pass: " << pass->name()
                          << ", seed: " << seed_context.current_seed << std::endl
@@ -344,6 +366,24 @@ namespace trieste
               << "Failed pass: " << pass->name()
               << ", seed: " << seed_context.current_seed << std::endl;
 
+          if (diff_test && !oracle_)
+          {
+            // check diff 
+            if(!expected_ast->equals(new_ast))
+            {
+              //Add to pass stats 
+              pass_stats.diff_count++;
+              err << "Diff test failed for seed: " << seed_context.current_seed << std::endl
+                  << "Expected AST:" << std::endl
+                  << expected_ast << "------------" << std::endl
+                  << "Actual AST:" << std::endl
+                  << new_ast << "------------" << std::endl;
+            }
+            //TODO: check and compare wf-results
+            // would be nice if RunResult captured errors/wf-errors separately?
+           
+          }
+
           if (failfast_)
             break;
         }
@@ -378,6 +418,7 @@ namespace trieste
 
         auto old_ast = survivor.ast->clone();
         auto old_changes = pass_stats.change_count;
+        auto input_ast = survivor.ast->clone();
 
         auto [new_ast, result] =
           run_pass(survivor.ast, pass, pass->wf(), pass_stats);
@@ -478,7 +519,11 @@ namespace trieste
       max_retries_(100),
       bound_vars_(true),
       test_sequence_(false),
-      size_stats_(false)
+      size_stats_(false),
+      alt_bin_(),
+      diff_test(false),
+      oracle_(false),
+      diff_failed_(false)
     {}
 
     Fuzzer(const Reader& reader)
@@ -670,6 +715,35 @@ namespace trieste
     {
       bound_vars_ = gen_bound_vars;
       return *this;
+    }
+
+    Fuzzer& diff(const std::filesystem::path& alt_bin)
+    {
+      alt_bin_ = alt_bin;
+      diff_test = true;
+      return *this;
+    }
+
+    Fuzzer& oracle(bool value)
+    {
+      diff_oracle_ = value;
+      return *this;
+    }
+
+    std::filesystem::path run_oracle(
+      const std::filesystem::path& alt_bin, std::string pass, size_t seed)
+    {
+      // Run the alternative binary with the given seed and capture its output.
+      // This is a placeholder for the actual implementation which would depend
+      // on how the alternative binary accepts input and produces output.
+      // For example, it might write the AST to a file or print it to stdout.
+      std::filesystem::path output_file = std::filesystem::temp_directory_path() /
+        ("oracle_output_" + std::to_string(seed) + ".txt");
+      std::system((alt_bin.string() + " --pass " + pass + " --seed " + std::to_string(seed) +
+                  " -c 1 " + " --oracle "
+                   " > " + output_file.string())
+                  .c_str());
+      return output_file;
     }
 
     int test()
