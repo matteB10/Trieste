@@ -50,7 +50,7 @@ int process_file(
   }
   else
   {
-    end_pass = parse_only ? "parse" : reader.passes().front()->name();
+    end_pass = parse_only ? "parse" : reader.passes().back()->name();
     reader.executable(bin)
       .file(file)
       .wf_check_enabled(true)
