@@ -23,7 +23,6 @@ namespace trieste
 
   private:
     int process_file(
-      const std::filesystem::path& bin, 
       const std::filesystem::path& file,
       const std::string& language_name,
       std::string& test_start_pass,
@@ -78,7 +77,7 @@ namespace trieste
           auto prev_pass =
             reader.pass_names().at(reader.pass_index(test_start_pass) - 1);
 
-          reader.executable(bin)
+          reader
             .file(file)
             .wf_check_enabled(true)
             .debug_enabled(false)
@@ -102,13 +101,13 @@ namespace trieste
         }
         sample_program->traverse([&](auto& n) {
           if (n != Error)
-            sample_trees[n->type()].push_back(n); 
+            sample_trees[n->type()].push_back(n);
           return true;
         });
       }
       return 0;
     }
-  
+
 
 public : Driver(const Reader& reader_, Options* options_ = nullptr)
 : reader(reader_), app(reader_.language_name()), options(options_)
@@ -285,7 +284,7 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       test->add_option(
         "--samples", sample_files,
         "Files to extract sample nodes from for fuzz testing");
-      
+
       size_t sampling_level = 1;
       test->add_option(
         "--sampling-level", sampling_level,
@@ -402,7 +401,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             auto file = entry.path();
 
             ret = process_file(
-              argv[0],
               file,
               language_name,
               test_start_pass,
@@ -413,7 +411,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
         else if (!sample_files.empty())
         {
           ret = process_file(
-            argv[0],
             sample_files,
             language_name,
             test_start_pass,
@@ -439,8 +436,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .sampling_enabled(sampling_enabled)
             .sampling_frequency(sampling_frequency);
 
-        if(*entropy) 
-        { 
+        if(*entropy)
+        {
           return fuzzer.debug_entropy();
         }
         else
