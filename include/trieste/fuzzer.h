@@ -608,6 +608,19 @@ namespace trieste
     : Fuzzer(rewriter.passes(), rewriter.input_wf(), generators)
     {}
 
+    std::vector<std::string> pass_names() const
+    {
+      std::vector<std::string> names;
+      std::transform(
+        passes_.begin(),
+        passes_.end(),
+        std::back_inserter(names),
+        [](const auto& pass) {
+          return pass->name();
+        });
+      return names;
+    }
+
     size_t max_depth() const
     {
       return max_depth_;

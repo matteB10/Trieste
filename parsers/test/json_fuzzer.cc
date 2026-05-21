@@ -38,6 +38,9 @@ int main(int argc, char** argv)
       "None")
     ->check(logging::set_log_level_from_string);
 
+  std::string pass;
+  app.add_option("-p,--start-pass", pass, "Test only this pass");
+
   std::filesystem::path sample_files;
   app.add_option(
     "--samples",
@@ -114,7 +117,27 @@ int main(int argc, char** argv)
   else
     fuzzer = Fuzzer(json::writer("fuzzer"), reader.parser().generators());
 
+  const auto names = fuzzer.pass_names();
+  auto it =
+    pass.empty() ? names.begin() : std::find(names.begin(), names.end(), pass);
+  if (it == names.end())
+  {
+    std::string joined;
+    for (const auto& n : names)
+      joined += (joined.empty() ? "" : ", ") + n;
+    logging::Error() << "Pass '" << pass << "' not in {" << joined << "}"
+                     << std::endl;
+    return 1;
+  }
+  size_t start_index =
+    static_cast<size_t>(std::distance(names.begin(), it)) + 1;
+
+  size_t end_index =
+    pass.empty() || sequence ? fuzzer.pass_names().size() : start_index;
+
   return fuzzer.start_seed(seed)
+    .start_index(start_index)
+    .end_index(end_index)
     .seed_count(count)
     .failfast(failfast)
     .max_retries(static_cast<size_t>(count) * 2)
