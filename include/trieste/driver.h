@@ -192,7 +192,7 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       std::filesystem::path test_path;
       mutate->add_option("path", test_path, "Path to file to compile.")->required();
 
-      std::filesystem::path sample_files;
+      std::vector<std::filesystem::path> sample_files;
       test->add_option(
         "--samples", sample_files,
         "Files to extract sample nodes from for fuzz testing");
@@ -278,7 +278,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       {
         Nodes sample_trees;
         bool sampling_enabled;
-        Node test_program;
 
         if (pass_names_no_parse.empty())
         {
@@ -302,42 +301,23 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             test_end_pass = test_start_pass;
         }
 
-        // If a path to sample files are provided, run all files up to the
-        // starting pass and collect the ast's to use during fuzzing.
-        if (std::filesystem::is_directory(sample_files))
+        for (auto const& sample_path : sample_files)
         {
-          for (auto const& entry :
-               std::filesystem::directory_iterator(sample_files))
+          if (!(std::filesystem::is_regular_file(sample_path) || std::filesystem::is_symlink(sample_path)))
           {
-            auto file = entry.path();
-
-            if (!std::filesystem::is_regular_file(file) && !std::filesystem::is_symlink(file))
-            {
-              logging::Debug() << "Skipping non-file " << file << std::endl;
-              continue;
-            }
-
-            Node sample_program = reader.parser().parse(file);
-
-            if (!sample_program)
-            {
-              logging::Error() << "Failed to parse test program from " << file
-                               << std::endl;
-              return 1;
-            }
-
-            sample_trees.push_back(sample_program);
+            logging::Output() << "Not sampling " << sample_path << std::endl;
+            continue;
           }
-        }
-        else if (!sample_files.empty())
-        {
-          Node sample_program = reader.parser().parse(sample_files);
+
+          Node sample_program = reader.parser().parse(sample_path);
+
           if (!sample_program)
           {
-            logging::Error() << "Failed to parse test program from " << sample_files
+            logging::Error() << "Failed to parse test program from " << sample_path
                              << std::endl;
             return 1;
           }
+
           sample_trees.push_back(sample_program);
         }
 
