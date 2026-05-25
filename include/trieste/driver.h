@@ -21,95 +21,6 @@ namespace trieste
     CLI::App app;
     Options* options;
 
-  private:
-    int process_file(
-      const std::filesystem::path& bin, 
-      const std::filesystem::path& file,
-      const std::string& language_name,
-      std::string& test_start_pass,
-      Node& sample_program,
-      std::map<Token, std::vector<Node>>& sample_trees)
-    {
-      // Treat regular files and symlinks as files. Skip directories.
-      if (
-        !std::filesystem::is_regular_file(file) &&
-        !std::filesystem::is_symlink(file))
-      {
-        logging::Debug() << "Unable to read sample file " << file << std::endl;
-        return 1;
-      }
-      // Only process files with the expected extensions.
-      auto ext = file.extension().string();
-      auto file_ending = "." + language_name;
-      if (ext != ".trieste" && ext != file_ending)
-      {
-        logging::Debug() << "Unexpected file ending " << ext << " in file "
-                         << file << std::endl;
-        return 1;
-      }
-
-      if (ext == ".trieste")
-      {
-        auto source = SourceDef::load(file);
-        auto view = source->view();
-        auto pos = std::min(view.find_first_of('\n'), view.size());
-        auto pos2 = std::min(view.find_first_of('\n', pos + 1), view.size());
-        auto pass = view.substr(pos + 1, pos2 - pos - 1);
-
-        if (view.compare(0, pos, reader.language_name()) != 0)
-        {
-          logging::Debug() << "File " << file
-                           << " does not start with the language name \""
-                           << reader.language_name() << "\"" << std::endl;
-        }
-
-        test_start_pass = reader.start_pass(pass).offset(pos2 + 1).start_pass();
-      }
-      else
-      {
-        if (reader.pass_index(test_start_pass) == 1)
-        {
-          sample_program = reader.parser().parse(file); // Run parser only
-          reader.end_pass("parse");
-        }
-        else
-        {
-          // Get the pass prior to the desired start pass
-          auto prev_pass =
-            reader.pass_names().at(reader.pass_index(test_start_pass) - 1);
-
-          reader.executable(bin)
-            .file(file)
-            .wf_check_enabled(true)
-            .debug_enabled(false)
-            .end_pass(prev_pass);
-
-          auto result = reader.read();
-          if (!result.ok)
-          {
-            logging::Error err;
-            result.print_errors(err);
-            return 1;
-          }
-          sample_program = result.ast; // Parse file as test program
-        }
-
-        if (!sample_program)
-        {
-          logging::Error() << "Failed to parse test program from " << file
-                           << std::endl;
-          return 1;
-        }
-        sample_program->traverse([&](auto& n) {
-          if (n != Error)
-            sample_trees[n->type()].push_back(n); 
-          return true;
-        });
-      }
-      return 0;
-    }
-  
-
 public : Driver(const Reader& reader_, Options* options_ = nullptr)
 : reader(reader_), app(reader_.language_name()), options(options_)
     {}
@@ -281,11 +192,11 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       std::filesystem::path test_path;
       mutate->add_option("path", test_path, "Path to file to compile.")->required();
 
-      std::filesystem::path sample_files;
+      std::vector<std::filesystem::path> sample_files;
       test->add_option(
         "--samples", sample_files,
         "Files to extract sample nodes from for fuzz testing");
-      
+
       size_t sampling_level = 1;
       test->add_option(
         "--sampling-level", sampling_level,
@@ -365,9 +276,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       }
       else if (*test)
       {
-        std::map<Token, std::vector<Node>> sample_trees = {};
+        Nodes sample_trees;
         bool sampling_enabled;
-        Node test_program;
 
         if (pass_names_no_parse.empty())
         {
@@ -391,35 +301,26 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             test_end_pass = test_start_pass;
         }
 
-        Node sample_program;
-        // If a path to sample files are provided, run all files up to the
-        // starting pass and collect the ast's to use during fuzzing.
-        if (std::filesystem::is_directory(sample_files))
+        for (auto const& sample_path : sample_files)
         {
-          for (auto const& entry :
-               std::filesystem::directory_iterator(sample_files))
+          if (!(std::filesystem::is_regular_file(sample_path) || std::filesystem::is_symlink(sample_path)))
           {
-            auto file = entry.path();
-
-            ret = process_file(
-              argv[0],
-              file,
-              language_name,
-              test_start_pass,
-              sample_program,
-              sample_trees);
+            logging::Output() << "Not sampling " << sample_path << std::endl;
+            continue;
           }
+
+          Node sample_program = reader.parser().parse(sample_path);
+
+          if (!sample_program)
+          {
+            logging::Error() << "Failed to parse test program from " << sample_path
+                             << std::endl;
+            return 1;
+          }
+
+          sample_trees.push_back(sample_program);
         }
-        else if (!sample_files.empty())
-        {
-          ret = process_file(
-            argv[0],
-            sample_files,
-            language_name,
-            test_start_pass,
-            sample_program,
-            sample_trees);
-        }
+
         sampling_enabled = !sample_trees.empty();
         Fuzzer fuzzer =
           Fuzzer(reader)
@@ -434,13 +335,13 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .bound_vars(bound_vars)
             .test_sequence(test_sequence)
             .size_stats(test_size_stats)
-            .sample_nodes(sample_trees)
+            .sample_trees(sample_trees)
             .sampling_level(sampling_level)
             .sampling_enabled(sampling_enabled)
             .sampling_frequency(sampling_frequency);
 
-        if(*entropy) 
-        { 
+        if(*entropy)
+        {
           return fuzzer.debug_entropy();
         }
         else

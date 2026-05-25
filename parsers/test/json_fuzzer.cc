@@ -3,153 +3,6 @@
 #include <trieste/json.h>
 
 using namespace trieste;
-int process_file(
-  const std::filesystem::path& bin,
-  const std::filesystem::path& file,
-  Reader& reader,
-  bool parse_only,
-  Node& sample_program,
-  std::map<Token, std::vector<Node>>& sample_trees)
-{
-  auto end_pass =
-    reader.passes().back()->name(); // Default to last pass if not set by file
-  // Treat regular files and symlinks as files. Skip directories.
-  if (
-    !std::filesystem::is_regular_file(file) &&
-    !std::filesystem::is_symlink(file))
-  {
-    logging::Debug() << "Unable to read sample file " << file << std::endl;
-    return 1;
-  }
-  // Only process files with the expected extensions.
-  auto ext = file.extension().string();
-  auto file_ending = "." + reader.language_name();
-  if (ext != ".trieste" && ext != file_ending)
-  {
-    logging::Debug() << "Unexpected file ending " << ext << " in file " << file
-                     << std::endl;
-    return 1;
-  }
-
-  if (ext == ".trieste")
-  {
-    auto source = SourceDef::load(file);
-    auto view = source->view();
-    auto pos = std::min(view.find_first_of('\n'), view.size());
-    auto pos2 = std::min(view.find_first_of('\n', pos + 1), view.size());
-    auto pass = view.substr(pos + 1, pos2 - pos - 1);
-
-    if (view.compare(0, pos, reader.language_name()) != 0)
-    {
-      logging::Debug() << "File " << file
-                       << " does not start with the language name \""
-                       << reader.language_name() << "\"" << std::endl;
-    }
-
-    end_pass = reader.start_pass(pass).offset(pos2 + 1).start_pass();
-  }
-  else
-  {
-    end_pass = parse_only ? "parse" : reader.passes().front()->name();
-    reader.executable(bin)
-      .file(file)
-      .wf_check_enabled(true)
-      .debug_enabled(false)
-      .end_pass(end_pass);
-
-    auto result = reader.read();
-    logging::Debug() << "Finished building samples from file " << file
-                     << std::endl;
-
-    if (!result.ok)
-    {
-      logging::Error err;
-      result.print_errors(err);
-      return 1;
-    }
-    sample_program = result.ast; // Parse file as test program
-  }
-
-  if (!sample_program)
-  {
-    logging::Error() << "Failed to parse test program from " << file
-                     << std::endl;
-    return 1;
-  }
-  sample_program->traverse([&](auto& n) {
-    if (n != Error)
-      sample_trees[n->type()].push_back(n);
-    return true;
-  });
-
-  return 0;
-}
-
-void populate_samples(
-  Reader& reader,
-  char** argv,
-  bool parse_only,
-  std::map<Token, std::vector<Node>>& sample_trees,
-  std::filesystem::path sample_files)
-{
-  // Configure fuzzer with sampling options
-  Node sample_program;
-  std::filesystem::path bin_path;
-  int ret = 0;
-
-  try
-  {
-    bin_path = std::filesystem::canonical(argv[0]);
-  }
-  catch (const std::filesystem::filesystem_error& e)
-  {
-    bin_path = std::filesystem::absolute(argv[0]);
-  }
-
-  if (!sample_files.empty() && std::filesystem::exists(sample_files))
-  {
-    // Extract sample nodes from files
-    if (std::filesystem::is_directory(sample_files))
-    {
-      // Process all YAML files in directory
-      for (const auto& entry :
-           std::filesystem::recursive_directory_iterator(sample_files))
-      {
-        if (entry.is_regular_file())
-        {
-          ret = process_file(
-            bin_path,
-            entry.path(),
-            reader,
-            parse_only,
-            sample_program,
-            sample_trees);
-        }
-      }
-    }
-    else
-    {
-      // Process single file
-      ret = process_file(
-        bin_path,
-        sample_files,
-        reader,
-        parse_only,
-        sample_program,
-        sample_trees);
-    }
-    if (ret)
-    {
-      logging::Debug() << "Error processing sample files" << std::endl;
-      exit(ret);
-    }
-  }
-  else
-  {
-    logging::Debug() << "No sample files provided or file does not exist at "
-                     << sample_files << std::endl;
-  }
-}
 
 int main(int argc, char** argv)
 {
@@ -185,8 +38,11 @@ int main(int argc, char** argv)
       "None")
     ->check(logging::set_log_level_from_string);
 
+  std::string pass;
+  app.add_option("-p,--start-pass", pass, "Test only this pass");
+
   std::filesystem::path sample_files;
-  auto* samples_option = app.add_option(
+  app.add_option(
     "--samples",
     sample_files,
     "Files to extract sample nodes from for fuzz testing");
@@ -219,33 +75,74 @@ int main(int argc, char** argv)
 
   logging::Output() << "Testing x" << count << ", seed: " << seed << std::endl;
 
-  Fuzzer fuzzer;
   Reader reader = json::reader();
-  bool parse_only = false;
-  std::map<Token, std::vector<Node>> sample_trees;
+  Nodes sample_trees;
 
-  if (transform == "reader")
+  if (!sample_files.empty() && std::filesystem::exists(sample_files))
   {
-    fuzzer = Fuzzer(reader);
-    parse_only = true; // Only test parsing for reader transform
-    if (samples_option->count() > 0)
+    if (std::filesystem::is_directory(sample_files))
     {
-      populate_samples(reader, argv, parse_only, sample_trees, sample_files);
-      logging::Info() << "Extracted " << sample_trees.size()
-                     << " sample nodes for fuzz testing" << std::endl;                     
+      for (const auto& entry :
+           std::filesystem::recursive_directory_iterator(sample_files))
+      {
+        if (entry.is_regular_file() && entry.path().extension() == ".json")
+        {
+          Node sample_program = reader.parser().parse(entry.path());
+          if (sample_program)
+            sample_trees.push_back(sample_program);
+          else
+            logging::Error() << "Failed to parse " << entry.path()
+                             << std::endl;
+        }
+      }
     }
+    else
+    {
+      Node sample_program = reader.parser().parse(sample_files);
+      if (!sample_program)
+      {
+        logging::Error() << "Failed to parse test program from " << sample_files
+                         << std::endl;
+        return 1;
+      }
+      sample_trees.push_back(sample_program);
+    }
+    logging::Info() << "Collected " << sample_trees.size()
+                    << " sample trees for fuzz testing" << std::endl;
   }
+
+  Fuzzer fuzzer;
+  if (transform == "reader")
+    fuzzer = Fuzzer(reader);
   else
-  {
     fuzzer = Fuzzer(json::writer("fuzzer"), reader.parser().generators());
+
+  const auto names = fuzzer.pass_names();
+  auto it =
+    pass.empty() ? names.begin() : std::find(names.begin(), names.end(), pass);
+  if (it == names.end())
+  {
+    std::string joined;
+    for (const auto& n : names)
+      joined += (joined.empty() ? "" : ", ") + n;
+    logging::Error() << "Pass '" << pass << "' not in {" << joined << "}"
+                     << std::endl;
+    return 1;
   }
+  size_t start_index =
+    static_cast<size_t>(std::distance(names.begin(), it)) + 1;
+
+  size_t end_index =
+    pass.empty() || sequence ? fuzzer.pass_names().size() : start_index;
 
   return fuzzer.start_seed(seed)
+    .start_index(start_index)
+    .end_index(end_index)
     .seed_count(count)
     .failfast(failfast)
     .max_retries(static_cast<size_t>(count) * 2)
     .test_sequence(sequence)
-    .sample_nodes(sample_trees)
+    .sample_trees(sample_trees)
     .sampling_enabled(!sample_trees.empty())
     .sampling_frequency(sampling_frequency)
     .sampling_level(sampling_level)
