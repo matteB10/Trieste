@@ -746,16 +746,6 @@ namespace trieste
       return *this;
     }
 
-    std::map<Token,std::vector<Node>> sampled_nodes() const
-    {
-      return sampled_nodes_;
-    }
-
-    Fuzzer& sampled_nodes(std::map<Token, Nodes>& sampled_nodes) {
-      sampled_nodes_ = sampled_nodes;
-      return *this;
-    }
-
     Fuzzer& sampling_level(size_t sampling_level) {
       sampling_level_ = sampling_level;
       return *this;

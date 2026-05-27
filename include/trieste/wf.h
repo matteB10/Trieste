@@ -30,13 +30,13 @@ namespace trieste
 
 
     struct Sampling{
-      std::map<trieste::Token, trieste::Nodes> sampled_nodes;
+      std::map<trieste::Token, trieste::Nodes>& sampled_nodes;
       size_t sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
       bool sampling_enabled;
       size_t sampling_frequency;
 
       Sampling(
-        std::map<trieste::Token, trieste::Nodes> sampled_nodes_,
+        std::map<trieste::Token, trieste::Nodes>& sampled_nodes_,
         size_t sampling_level_,
         bool sampling_enabled_,
         size_t sampling_frequency_)
@@ -950,7 +950,7 @@ namespace trieste
 
       public:
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
-        std::map<trieste::Token, trieste::Nodes> sampled_nodes, size_t sampling_level,
+        std::map<trieste::Token, trieste::Nodes>& sampled_nodes, size_t sampling_level,
         bool sampling_enabled, size_t sampling_frequency) const
       {
         // Collect map of tokens to their binding token and the corresponding
@@ -982,7 +982,8 @@ namespace trieste
 
       Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
       {
-        return gen(gloc, seed, target_depth, gen_bound, {}, 0, false, 0);
+        std::map<trieste::Token, trieste::Nodes> empty_nodes;
+        return gen(gloc, seed, target_depth, gen_bound, empty_nodes, 0, false, 0);
       }
 
 
