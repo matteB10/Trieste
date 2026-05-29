@@ -478,55 +478,6 @@ namespace trieste
       return *std::max_element(v.begin(), v.end());
     }
 
-    void initialize_samples(WFContext& context)
-    {
-      logging::Debug() << "Processing sample trees up to pass: "
-                       << passes_.at(start_index_ - 1)->name() << std::endl;
-      for (size_t i = 1; i < start_index_; i++)
-      {
-        auto& pass = passes_.at(i - 1);
-        auto& wf = pass->wf();
-        auto& prev = i > 1 ? passes_.at(i - 2)->wf() : *input_wf_;
-
-        context.push_back(prev);
-        context.push_back(wf);
-
-        for (auto& sample_tree : sample_trees_)
-        {
-          auto ok = prev.build_st(sample_tree);
-          ok = prev.check(sample_tree) && ok;
-          if (!ok)
-          {
-            logging::Debug() << "Sample tree is not well-formed for pass: "
-                             << pass->name() << std::endl
-                             << sample_tree << std::endl;
-            continue;
-          }
-
-          auto [new_ast, cn, ch] = pass->run(sample_tree);
-
-          Nodes errors;
-          new_ast->get_errors(errors);
-          if (!errors.empty())
-          {
-            logging::Debug() << "Sample tree caused errors for pass: "
-                             << pass->name() << std::endl
-                             << new_ast << std::endl;
-          }
-        }
-        context.pop_front();
-        context.pop_front();
-      }
-
-      for (auto& sample_tree : sample_trees_)
-      {
-        sample_tree->traverse([&](auto& n) {
-          sampled_nodes_[n->type()].emplace_back(n);
-          return true;
-        });
-      }
-    }
-
     void update_sample_nodes(wf::Wellformed wf, Pass& pass)
     {
       auto it = sampled_nodes_.find(Top);
@@ -567,6 +518,35 @@ namespace trieste
             sampled_nodes_[n->type()].emplace_back(n);
           return true;
         });
+      }
+    }
+
+    void initialize_samples(WFContext& context)
+    {
+      logging::Debug() << "Processing sample trees up to pass: "
+                       << passes_.at(start_index_ - 1)->name() << std::endl;
+      std::cout << "Number of input sample trees: " << sample_trees_.size() << std::endl;
+      for (auto& sample_tree : sample_trees_)
+      {
+        sample_tree->traverse([&](auto& n) {
+            sampled_nodes_[n->type()].emplace_back(n);
+            return true;
+        });
+      }
+
+      for (size_t i = 1; i < start_index_; i++)
+      {
+        auto& pass = passes_.at(i - 1);
+        auto& wf = pass->wf();
+        auto& prev = i > 1 ? passes_.at(i - 2)->wf() : *input_wf_;
+
+        context.push_back(prev);
+        context.push_back(wf);
+
+        update_sample_nodes(wf, pass);
+
+        context.pop_front();
+        context.pop_front();
       }
     }
 
