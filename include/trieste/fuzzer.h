@@ -509,8 +509,10 @@ namespace trieste
 
         node_updated->get_errors(errors);
         if (!errors.empty())
+        {
+          errors.clear();
           continue;
-
+        }
 
         // Repopulate sample nodes map for next round.
         node_updated->traverse([&](auto& n) {

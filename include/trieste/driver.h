@@ -301,6 +301,10 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             test_end_pass = test_start_pass;
         }
 
+        // Sort the sample files so they are loaded in a deterministic
+        // order making fuzzing reproducible.
+        std::sort(sample_files.begin(), sample_files.end());
+
         for (auto const& sample_path : sample_files)
         {
           if (!(std::filesystem::is_regular_file(sample_path) || std::filesystem::is_symlink(sample_path)))
