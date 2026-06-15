@@ -319,14 +319,12 @@ namespace trieste
         Nodes symbols = get_symbols_from_type(type, child->scope());
         // Adding +1 to allow for fresh location with a small probability
         auto rand_symbol = static_cast<size_t>(next() % (symbols.size() + 1));
-        auto it = binding_keys.find(parent->type());
-        // Prefer location from a symbol table if gen_bound_vars is enabled
-        if (
-          rand_symbol < symbols.size() && should_gen_bound(parent, type) &&
-          it != binding_keys.end())
+        // Prefer location from a symbol table if gen_bound_vars is enabled.
+        if (rand_symbol < symbols.size() && should_gen_bound(parent, type))
         {
-          auto key_index = it->second.second;
-          return (symbols[rand_symbol]->at(key_index))->location();
+          auto sym = symbols[rand_symbol];
+          auto key_index = binding_keys.at(sym->type()).second;
+          return (sym->at(key_index))->location();
         }
         auto fresh = fresh_location(child);
         while (is_in_scope(fresh, parent->scope()))
