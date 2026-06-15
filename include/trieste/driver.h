@@ -187,11 +187,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
         ignored_tokens,
         "Ignore this token when checking patterns against well-formedness rules.");
 
-      auto mutate = test->add_subcommand("mutate",
-                       "Use test program and mutate AST during testing. Use optional test files in mutation");
-      std::filesystem::path test_path;
-      mutate->add_option("path", test_path, "Path to file to compile.")->required();
-
       std::vector<std::filesystem::path> sample_files;
       test->add_option(
         "--samples", sample_files,
@@ -277,7 +272,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
       else if (*test)
       {
         Nodes sample_trees;
-        bool sampling_enabled;
 
         if (pass_names_no_parse.empty())
         {
@@ -325,7 +319,6 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
           sample_trees.push_back(sample_program);
         }
 
-        sampling_enabled = !sample_trees.empty();
         Fuzzer fuzzer =
           Fuzzer(reader)
             .max_retries(
@@ -341,7 +334,7 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .size_stats(test_size_stats)
             .sample_trees(sample_trees)
             .sampling_level(sampling_level)
-            .sampling_enabled(sampling_enabled)
+            .sampling_enabled(!sample_trees.empty())
             .sampling_frequency(sampling_frequency);
 
         if(*entropy)
