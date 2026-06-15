@@ -573,6 +573,7 @@ namespace trieste
       sampled_nodes_({}),
       sampling_level_(0),
       sampling_enabled_(false),
+      sampling_frequency_(50),
       test_sequence_(false),
       size_stats_(false)
     {}
