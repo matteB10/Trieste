@@ -1,3 +1,4 @@
+#include "fuzz_util.h"
 #include "trieste/logging.h"
 
 #include <CLI/CLI.hpp>
@@ -83,44 +84,13 @@ int main(int argc, char** argv)
 
   Reader reader = yaml::reader();
   Reader reader_tojson = yaml::reader() >>= yaml::to_json();
-  Nodes sample_trees;
 
   // Determine which reader to use for parsing sample files.
   Reader& sample_reader =
     (transform == "reader_to_json") ? reader_tojson : reader;
 
-  if (!sample_files.empty() && std::filesystem::exists(sample_files))
-  {
-    if (std::filesystem::is_directory(sample_files))
-    {
-      for (const auto& entry :
-           std::filesystem::recursive_directory_iterator(sample_files))
-      {
-        if (entry.is_regular_file() && entry.path().extension() == ".yaml")
-        {
-          Node sample_program = sample_reader.parser().parse(entry.path());
-          if (sample_program)
-            sample_trees.push_back(sample_program);
-          else
-            logging::Error() << "Failed to parse " << entry.path()
-                             << std::endl;
-        }
-      }
-    }
-    else
-    {
-      Node sample_program = sample_reader.parser().parse(sample_files);
-      if (!sample_program)
-      {
-        logging::Error() << "Failed to parse test program from " << sample_files
-                         << std::endl;
-        return 1;
-      }
-      sample_trees.push_back(sample_program);
-    }
-    logging::Info() << "Collected " << sample_trees.size()
-                    << " sample trees for fuzz testing" << std::endl;
-  }
+  Nodes sample_trees =
+    load_sample_trees(sample_reader, sample_files, ".yaml");
 
   Fuzzer fuzzer;
   if (transform == "reader")
@@ -135,9 +105,8 @@ int main(int argc, char** argv)
     fuzzer = Fuzzer(reader_tojson);
 
   const auto names = fuzzer.pass_names();
-  auto it =
-    pass.empty() ? names.begin() : std::find(names.begin(), names.end(), pass);
-  if (it == names.end())
+  size_t start_index = pass.empty() ? 1 : fuzzer.pass_index(pass);
+  if (start_index == std::numeric_limits<size_t>::max())
   {
     std::string joined;
     for (const auto& n : names)
@@ -146,11 +115,9 @@ int main(int argc, char** argv)
                      << std::endl;
     return 1;
   }
-  size_t start_index =
-    static_cast<size_t>(std::distance(names.begin(), it)) + 1;
 
   size_t end_index =
-    pass.empty() || sequence ? fuzzer.pass_names().size() : start_index;
+    pass.empty() || sequence ? names.size() : start_index;
 
   return fuzzer.start_seed(seed)
     .start_index(start_index)

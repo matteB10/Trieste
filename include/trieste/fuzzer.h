@@ -527,7 +527,8 @@ namespace trieste
     {
       logging::Debug() << "Processing sample trees up to pass: "
                        << passes_.at(start_index_ - 1)->name() << std::endl;
-      std::cout << "Number of input sample trees: " << sample_trees_.size() << std::endl;
+      logging::Debug() << "Number of input sample trees: "
+                       << sample_trees_.size() << std::endl;
       for (auto& sample_tree : sample_trees_)
       {
         sample_tree->traverse([&](auto& n) {
@@ -602,6 +603,18 @@ namespace trieste
           return pass->name();
         });
       return names;
+    }
+
+    // Returns the 1-based index of the named pass (matching the start_index_/
+    // end_index_ convention), or size_t max if no such pass exists.
+    size_t pass_index(const std::string& name) const
+    {
+      for (size_t i = 0; i < passes_.size(); i++)
+      {
+        if (passes_[i]->name() == name)
+          return i + 1;
+      }
+      return std::numeric_limits<size_t>::max();
     }
 
     size_t max_depth() const
