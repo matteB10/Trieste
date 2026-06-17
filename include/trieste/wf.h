@@ -33,7 +33,7 @@ namespace trieste
       std::map<trieste::Token, trieste::Nodes>& sampled_nodes;
       size_t sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
       bool sampling_enabled;
-      size_t sampling_frequency;
+      size_t sampling_period; // use a sample roughly 1-in-`sampling_period` draws; 0 = never
 
       Sampling(
         std::map<trieste::Token, trieste::Nodes>& sampled_nodes_,
@@ -43,8 +43,8 @@ namespace trieste
       : sampled_nodes(sampled_nodes_),
         sampling_level(sampling_level_),
         sampling_enabled(sampling_enabled_),
-        sampling_frequency(
-          sampling_frequency_ > 0 ? std::floor(100.0 / sampling_frequency_) : 1)
+        sampling_period(
+          sampling_frequency_ > 0 ? std::floor(100.0 / sampling_frequency_) : 0)
       {}
     };
     struct Gen
@@ -205,15 +205,21 @@ namespace trieste
         return sampling.sampling_level;
       }
 
-      size_t sampling_enabled()
+      bool sampling_enabled()
       {
         return sampling.sampling_enabled;
       }
 
-      size_t use_sample(){
-        return next() % sampling.sampling_frequency == 0;
+      bool use_sample()
+      {
+        // A frequency of 0 (period 0) means never sample
+        if (sampling.sampling_period == 0)
+          return false;
+        return next() % sampling.sampling_period == 0;
       }
-      bool subtree_sampling() {
+
+      bool subtree_sampling()
+      {
         return sampling.sampling_level == 0;
       }
 
@@ -393,17 +399,16 @@ namespace trieste
         auto& samples = sampling.sampled_nodes[node->type()];
         size_t choice = rand() % samples.size();
         auto sample = samples[choice];
-        auto sampling_level = sampling.sampling_level;
+
+        // sampling_level 0 means clone the entire subtree; otherwise clone that
+        // many levels and leave the rest to be generated.
+        constexpr size_t full_subtree = std::numeric_limits<size_t>::max();
+        size_t levels =
+          sampling.sampling_level == 0 ? full_subtree : sampling.sampling_level;
 
         // Copy children from sample
         for (auto& child : *sample)
-        {
-          if (sampling_level == 0)
-          // Clone entire subtree
-            clone_depth(-1, node, child, continuations);
-          else
-            clone_depth(sampling_level, node, child, continuations);
-        }
+          clone_depth(levels, node, child, continuations);
       }
     };
     struct Choice
@@ -423,56 +428,56 @@ namespace trieste
         return std::find(types.begin(), types.end(), type) != types.end();
       }
 
-          bool check(Node node) const
-          {
-            if (node == Error)
-              return true;
+      bool check(Node node) const
+      {
+        if (node == Error)
+          return true;
 
         auto ok = accepts_type(node->type());
 
-            if (!ok)
-            {
-              // Note log will be output on end of scope.
-              logging::Error out{};
+        if (!ok)
+        {
+          // Note log will be output on end of scope.
+          logging::Error out{};
 
-              out << node->location().origin_linecol() << ": unexpected "
-                  << node->type().str() << ", expected a ";
+          out << node->location().origin_linecol() << ": unexpected "
+              << node->type().str() << ", expected a ";
 
-              for (size_t i = 0; i < types.size(); ++i)
-              {
-                out << types[i].str();
-
-                if (i < (types.size() - 2))
-                  out << ", ";
-                if (i == (types.size() - 2))
-                  out << " or ";
-              }
-
-              out << std::endl << node->location().str() << node << std::endl;
-            }
-
-            return ok;
-          }
-
-          std::size_t expected_distance_to_terminal(
-            const std::set<Token>& omit,
-            std::size_t max_distance,
-            std::function<std::size_t(Token)> distance) const
+          for (size_t i = 0; i < types.size(); ++i)
           {
-            return std::accumulate(
-                     types.begin(),
-                     types.end(),
-                     static_cast<std::size_t>(0),
-                     [&](std::size_t acc, auto& type) {
-                       if (omit.find(type) != omit.end())
-                       {
-                         return acc + max_distance;
-                       }
+            out << types[i].str();
 
-                       return acc + distance(type);
-                     }) /
-              types.size();
+            if (i < (types.size() - 2))
+              out << ", ";
+            if (i == (types.size() - 2))
+              out << " or ";
           }
+
+          out << std::endl << node->location().str() << node << std::endl;
+        }
+
+        return ok;
+      }
+
+      std::size_t expected_distance_to_terminal(
+        const std::set<Token>& omit,
+        std::size_t max_distance,
+        std::function<std::size_t(Token)> distance) const
+      {
+        return std::accumulate(
+                 types.begin(),
+                 types.end(),
+                 static_cast<std::size_t>(0),
+                 [&](std::size_t acc, auto& type) {
+                   if (omit.find(type) != omit.end())
+                   {
+                     return acc + max_distance;
+                   }
+
+                   return acc + distance(type);
+                 }) /
+          types.size();
+      }
 
       void gen(Gen& g, size_t depth, Node node) const
       {
@@ -1072,6 +1077,7 @@ namespace trieste
         Nodes continuations;
         if (
           g.sampling_enabled() &&
+          depth < g.ceiling_depth && // Stop sampling once we reach the ceiling so termination is guaranteed
           g.has_sample_nodes(node->type()) &&
           g.use_sample() &&
           !(depth == 0 && g.subtree_sampling()))
