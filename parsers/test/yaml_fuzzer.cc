@@ -89,8 +89,7 @@ int main(int argc, char** argv)
   Reader& sample_reader =
     (transform == "reader_to_json") ? reader_tojson : reader;
 
-  Nodes sample_trees =
-    load_sample_trees(sample_reader, sample_files, ".yaml");
+  Nodes sample_trees = load_sample_trees(sample_reader, sample_files, ".yaml");
 
   Fuzzer fuzzer;
   if (transform == "reader")
@@ -116,8 +115,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  size_t end_index =
-    pass.empty() || sequence ? names.size() : start_index;
+  size_t end_index = pass.empty() || sequence ? names.size() : start_index;
 
   return fuzzer.start_seed(seed)
     .start_index(start_index)

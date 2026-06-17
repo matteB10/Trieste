@@ -98,8 +98,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  size_t end_index =
-    pass.empty() || sequence ? names.size() : start_index;
+  size_t end_index = pass.empty() || sequence ? names.size() : start_index;
 
   return fuzzer.start_seed(seed)
     .start_index(start_index)

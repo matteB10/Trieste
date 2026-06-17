@@ -9,8 +9,6 @@
 
 namespace trieste
 {
-  using InputSpec =
-      std::optional<std::variant<std::filesystem::path, Source>>;
   class Fuzzer
   {
   private:
@@ -26,7 +24,7 @@ namespace trieste
     size_t max_retries_;
     bool bound_vars_; // Generate bound variable names
     std::vector<Node> sample_trees_;
-    std::map<Token,std::vector<Node>> sampled_nodes_;
+    std::map<Token, std::vector<Node>> sampled_nodes_;
     size_t sampling_level_;
     bool sampling_enabled_;
     // Probability of choosing a sampled node over a generated node
@@ -338,7 +336,6 @@ namespace trieste
                          << ast << "------------" << std::endl;
 
         auto old_changes = pass_stats.change_count;
-        auto old_ast = ast->clone();
         auto [new_ast, result] = run_pass(ast, pass, pass->wf(), pass_stats);
 
         logging::Trace() << new_ast << "------------" << std::endl << std::endl;
@@ -349,12 +346,20 @@ namespace trieste
           if (!logging::Trace::active())
           {
             // We haven't printed what failed with Trace earlier, so do it
-            // now.
+            // now. Regenerate the initial AST for the error message.
             err << "============" << std::endl
                 << "Pass: " << pass->name()
                 << ", seed: " << seed_context.current_seed << std::endl
                 << "------------" << std::endl
-                << old_ast
+                << prev.gen(
+                     generators_,
+                     seed_context.current_seed,
+                     max_depth_,
+                     bound_vars_,
+                     sampled_nodes_,
+                     sampling_level_,
+                     sampling_enabled_,
+                     sampling_frequency_)
                 << "------------" << std::endl
                 << new_ast;
           }
@@ -493,7 +498,8 @@ namespace trieste
 
       for (auto& node : sample_progs)
       {
-        if (!node){
+        if (!node)
+        {
           continue;
         }
         auto [node_updated, cn, ch] = pass->run(node);
@@ -503,7 +509,8 @@ namespace trieste
 
         // Don't use invalid updated nodes.
         auto ok = wf.build_st(node_updated);
-        if (!ok || !wf.check(node_updated)){
+        if (!ok || !wf.check(node_updated))
+        {
           continue;
         }
 
@@ -532,8 +539,8 @@ namespace trieste
       for (auto& sample_tree : sample_trees_)
       {
         sample_tree->traverse([&](auto& n) {
-            sampled_nodes_[n->type()].emplace_back(n);
-            return true;
+          sampled_nodes_[n->type()].emplace_back(n);
+          return true;
         });
       }
 
@@ -599,9 +606,7 @@ namespace trieste
         passes_.begin(),
         passes_.end(),
         std::back_inserter(names),
-        [](const auto& pass) {
-          return pass->name();
-        });
+        [](const auto& pass) { return pass->name(); });
       return names;
     }
 
@@ -737,22 +742,26 @@ namespace trieste
       return sample_trees_;
     }
 
-    Fuzzer& sample_trees(Nodes& sample_trees) {
+    Fuzzer& sample_trees(Nodes& sample_trees)
+    {
       sample_trees_ = sample_trees;
       return *this;
     }
 
-    Fuzzer& sampling_level(size_t sampling_level) {
+    Fuzzer& sampling_level(size_t sampling_level)
+    {
       sampling_level_ = sampling_level;
       return *this;
     }
 
-    Fuzzer& sampling_enabled(bool sampling_enabled) {
+    Fuzzer& sampling_enabled(bool sampling_enabled)
+    {
       sampling_enabled_ = sampling_enabled;
       return *this;
     }
 
-    Fuzzer& sampling_frequency(size_t sampling_frequency) {
+    Fuzzer& sampling_frequency(size_t sampling_frequency)
+    {
       sampling_frequency_ = sampling_frequency;
       return *this;
     }
@@ -838,7 +847,8 @@ namespace trieste
 
       int ret = 0;
 
-      // Get sampled trees up to the starting pass and populate `sampled_nodes_` for generation.
+      // Get sampled trees up to the starting pass and populate `sampled_nodes_`
+      // for generation.
       if (sampling_enabled_ && !sample_trees_.empty())
       {
         initialize_samples(context);
@@ -951,6 +961,5 @@ namespace trieste
 
       return ret;
     }
-
   };
 }

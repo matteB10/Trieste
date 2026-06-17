@@ -28,12 +28,14 @@ namespace trieste
     // Types of possible keys and their field index
     using SymtabKeys = std::pair<std::vector<Token>, size_t>;
 
-
-    struct Sampling{
+    struct Sampling
+    {
       std::map<trieste::Token, trieste::Nodes>& sampled_nodes;
-      size_t sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
+      size_t
+        sampling_level; // 0: subtree sampling, 1..n: subtree height sampling
       bool sampling_enabled;
-      size_t sampling_period; // use a sample roughly 1-in-`sampling_period` draws; 0 = never
+      size_t sampling_period; // use a sample roughly 1-in-`sampling_period`
+                              // draws; 0 = never
 
       Sampling(
         std::map<trieste::Token, trieste::Nodes>& sampled_nodes_,
@@ -95,7 +97,10 @@ namespace trieste
         binding_keys(binding_keys_),
         gen_bound_vars(gen_bound_vars_),
         sampling(Sampling(
-          sampled_nodes, sampling_level, sampling_enabled_, sampling_frequency_))
+          sampled_nodes,
+          sampling_level,
+          sampling_enabled_,
+          sampling_frequency_))
       {
         // Warm up RNG
         for (int i = 0; i < 10; i++)
@@ -233,8 +238,7 @@ namespace trieste
           st->get_symbols(symbols, [&](auto& n) {
             auto it = binding_keys.find(n->type());
             return (
-              n->type() & flag::lookup &&
-              it != binding_keys.end() &&
+              n->type() & flag::lookup && it != binding_keys.end() &&
               contains_type(it->second.first, type));
           });
           st = st->scope();
@@ -248,16 +252,16 @@ namespace trieste
         Nodes symbols;
         while (st)
         {
-          st->get_symbols(loc, symbols, [&](auto& n) {
-            return (n->type() & flag::lookup);
-          });
+          st->get_symbols(
+            loc, symbols, [&](auto& n) { return (n->type() & flag::lookup); });
           st = st->scope();
         }
         return symbols;
       }
 
       // Checks if child is a symbol table key for the parent type
-      bool is_symtab_key(size_t child_index, Token child_type, Token parent_type)
+      bool
+      is_symtab_key(size_t child_index, Token child_type, Token parent_type)
       {
         auto it = binding_keys.find(parent_type);
         if (it == binding_keys.end())
@@ -286,7 +290,7 @@ namespace trieste
           if (contains_type(binds_to.first, child_type))
             bound_nodes.push_back(parent_type);
         }
-        if (bound_nodes.empty()) //No bound nodes to use 
+        if (bound_nodes.empty()) // No bound nodes to use
         {
           return false;
         }
@@ -334,7 +338,7 @@ namespace trieste
         }
         auto fresh = fresh_location(child);
         while (is_in_scope(fresh, parent->scope()))
-        { 
+        {
           // "Fresh" location might be in scope if the fresh machinery has
           // been used in both rewriting and generation
           fresh = fresh_location(child);
@@ -925,7 +929,8 @@ namespace trieste
         return ok;
       }
 
-      void populate_binding_keys(std::map<trieste::Token, SymtabKeys>& binding_keys) const
+      void populate_binding_keys(
+        std::map<trieste::Token, SymtabKeys>& binding_keys) const
       {
         for (const auto& [t, s] : shapes)
         {
@@ -950,15 +955,20 @@ namespace trieste
         }
       }
 
-
-      public:
-      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound, 
-        std::map<trieste::Token, trieste::Nodes>& sampled_nodes, size_t sampling_level,
-        bool sampling_enabled, size_t sampling_frequency) const
+    public:
+      Node gen(
+        GenNodeLocationF gloc,
+        Seed seed,
+        size_t target_depth,
+        bool gen_bound,
+        std::map<trieste::Token, trieste::Nodes>& sampled_nodes,
+        size_t sampling_level,
+        bool sampling_enabled,
+        size_t sampling_frequency) const
       {
         // Collect map of tokens to their binding token and the corresponding
-        // index in the children vector. This is used to preferentially generate 
-        //bound variables that are in scope.
+        // index in the children vector. This is used to preferentially generate
+        // bound variables that are in scope.
         auto binding_keys = std::map<trieste::Token, SymtabKeys>{};
         if (gen_bound || sampling_enabled)
         {
@@ -971,24 +981,25 @@ namespace trieste
           seed,
           target_depth,
           binding_keys,
-          gen_bound, 
-          sampled_nodes, 
+          gen_bound,
+          sampled_nodes,
           sampling_level,
           sampling_enabled,
-          sampling_frequency
-        );
+          sampling_frequency);
         auto top = NodeDef::create(Top);
         ast::detail::top_node() = top;
         gen_node(g, 0, top);
         return top;
       }
 
-      Node gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound) const
+      Node
+      gen(GenNodeLocationF gloc, Seed seed, size_t target_depth, bool gen_bound)
+        const
       {
         std::map<trieste::Token, trieste::Nodes> empty_nodes;
-        return gen(gloc, seed, target_depth, gen_bound, empty_nodes, 0, false, 0);
+        return gen(
+          gloc, seed, target_depth, gen_bound, empty_nodes, 0, false, 0);
       }
-
 
       std::size_t min_dist_to_terminal(
         TokenTerminalDistance& distance,
@@ -1072,15 +1083,12 @@ namespace trieste
         if (find == shapes.end())
           return;
 
-        // If depth == 0 and we are doing subtree sampling,
-        // we don't want to sample at the top level to avoid copying a full sample.
         Nodes continuations;
         if (
           g.sampling_enabled() &&
-          depth < g.ceiling_depth && // Stop sampling once we reach the ceiling so termination is guaranteed
-          g.has_sample_nodes(node->type()) &&
-          g.use_sample() &&
-          !(depth == 0 && g.subtree_sampling()))
+          depth < g.ceiling_depth && // Guarantees termination
+          g.has_sample_nodes(node->type()) && g.use_sample() &&
+          !(depth == 0 && g.subtree_sampling())) // Avoid copying entire sample
         {
           g.gen_sample(node, continuations);
           // Continue generating next layer

@@ -189,12 +189,14 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
 
       std::vector<std::filesystem::path> sample_files;
       test->add_option(
-        "--samples", sample_files,
+        "--samples",
+        sample_files,
         "Files to extract sample nodes from for fuzz testing");
 
       size_t sampling_level = 1;
       test->add_option(
-        "--sampling-level", sampling_level,
+        "--sampling-level",
+        sampling_level,
         "Level of sampling to use for selecting sample nodes");
 
       size_t sampling_frequency = 50; // Default to 50% sampling frequency
@@ -301,7 +303,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
 
         for (auto const& sample_path : sample_files)
         {
-          if (!(std::filesystem::is_regular_file(sample_path) || std::filesystem::is_symlink(sample_path)))
+          if (!(std::filesystem::is_regular_file(sample_path) ||
+                std::filesystem::is_symlink(sample_path)))
           {
             logging::Output() << "Not sampling " << sample_path << std::endl;
             continue;
@@ -311,8 +314,8 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
 
           if (!sample_program)
           {
-            logging::Error() << "Failed to parse test program from " << sample_path
-                             << std::endl;
+            logging::Error() << "Failed to parse test program from "
+                             << sample_path << std::endl;
             return 1;
           }
 
@@ -337,7 +340,7 @@ public : Driver(const Reader& reader_, Options* options_ = nullptr)
             .sampling_enabled(!sample_trees.empty())
             .sampling_frequency(sampling_frequency);
 
-        if(*entropy)
+        if (*entropy)
         {
           return fuzzer.debug_entropy();
         }
