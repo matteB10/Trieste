@@ -226,6 +226,16 @@ namespace trieste
     }
 
   public:
+    // Children can outlive this node when something else holds a reference
+    // to them (e.g. a symbol table). Don't leave them pointing at freed
+    // memory.
+    ~NodeDef()
+    {
+      for (auto& child : children)
+        if (child && child->parent_ == this)
+          child->parent_ = nullptr;
+    }
+
     static Node create(const Token& type)
     {
       return Node(new NodeDef(type, Location{nullptr, 0, 0}));
@@ -740,6 +750,10 @@ namespace trieste
 
       // Check that p is to the left of q.
       auto parent = p->parent_;
+      // p and q are not in the same tree, e.g. a definition held by a symbol
+      // table after a rewrite detached it.
+      if (parent == nullptr)
+        return false;
       return parent->find(p->intrusive_ptr_from_this()) <
         parent->find(q->intrusive_ptr_from_this());
     }
